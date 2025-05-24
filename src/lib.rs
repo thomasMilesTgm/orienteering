@@ -5,28 +5,45 @@
 pub mod topography;
 
 pub mod seed {
-    #[derive(Clone)]
-    pub struct MapSeed {
-        bytes: Vec<u8>,
-    }
+    use rand::{
+        SeedableRng,
+        rngs::{SmallRng, StdRng},
+    };
 
-    impl Default for MapSeed {
-        fn default() -> Self {
-            Self { bytes: vec![0; 32] }
-        }
+    #[derive(Clone, Default)]
+    pub struct MapSeed {
+        bytes: [u8; 32],
     }
 
     impl MapSeed {
         pub fn from_string(string: String) -> Self {
-            Self::from(string.as_bytes())
+            string
+                .bytes()
+                .enumerate()
+                .fold(Self::default(), |mut new, (i, b)| {
+                    // Wrap around if there are > 32 chars in the string
+                    let ix = i % 32;
+                    // XOR the byte into the seed
+                    new.bytes[ix] ^= b;
+                    new
+                })
+        }
+
+        pub fn as_bytes(&self) -> &[u8] {
+            &self.bytes
+        }
+
+        pub fn into_small_rng(self) -> SmallRng {
+            SmallRng::from_seed(self.bytes)
+        }
+        pub fn into_sdt_rng(self) -> StdRng {
+            StdRng::from_seed(self.bytes)
         }
     }
 
-    impl From<&[u8]> for MapSeed {
-        fn from(value: &[u8]) -> Self {
-            Self {
-                bytes: value.to_vec(),
-            }
+    impl From<[u8; 32]> for MapSeed {
+        fn from(value: [u8; 32]) -> Self {
+            Self { bytes: value }
         }
     }
 
