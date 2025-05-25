@@ -3,6 +3,7 @@
 //! Rust library for procedural world generation.
 
 pub mod topography;
+pub mod utils;
 
 pub mod seed {
     use rand::{

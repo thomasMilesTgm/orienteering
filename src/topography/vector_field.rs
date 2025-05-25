@@ -1,4 +1,4 @@
-use nalgebra::{Isometry2, Point2, Vector2};
+use nalgebra::{Point2, Vector2};
 use rand::Rng;
 
 use super::vector_function::*;
@@ -9,27 +9,23 @@ use super::vector_function::*;
 pub struct GeneralVectorField<Vx: VectorFn, Vy: VectorFn> {
     pub vx: Vx,
     pub vy: Vy,
-    pub tf: Isometry2<f32>,
 }
 
 impl<Vx: VectorFn, Vy: VectorFn> GeneralVectorField<Vx, Vy> {
     pub fn v_xy(&self, xy: Point2<f32>) -> Vector2<f32> {
-        let xy_local = self.tf.transform_point(&xy);
-        Vector2::new(self.vx.v_xy(xy_local), self.vy.v_xy(xy_local))
+        Vector2::new(self.vx.v_xy(xy), self.vy.v_xy(xy))
     }
     pub fn from_rng<T: Rng>(rng: &mut T) -> Self {
         let vx = Vx::from_rng(rng);
         let vy = Vy::from_rng(rng);
-        let tf = Isometry2::identity();
-        Self { vx, vy, tf }
+        Self { vx, vy }
     }
 }
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct VectorField {
-    pub field: FieldType,
-    pub xy0: Point2<f32>,
+    field: FieldType,
 }
 
 /// Vector field types used to generate terrain

@@ -17,6 +17,7 @@ derive_more = { version = "2.0.1", features = [
   "mul",
 ] }
 nalgebra = "0.33.2"
+ordered-float = { version = "5.0.0", features = ["serde"] }
 rand = { version = "0.9.1", features = ["small_rng", "std_rng"] }
 serde = { version = "1.0.219", features = ["derive"], optional = true }
 
