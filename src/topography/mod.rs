@@ -8,7 +8,7 @@ use crate::{
     utils::*,
 };
 use nalgebra::{Point2, Vector2};
-use vector_field::{CircularField, Field, FieldType, VectorField};
+use vector_field::{CircularField, Field, VectorField};
 
 pub mod vector_field;
 pub mod vector_function;
