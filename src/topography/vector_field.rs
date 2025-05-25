@@ -4,7 +4,10 @@ use enum_dispatch::enum_dispatch;
 use nalgebra::{Point2, Vector2};
 use rand::Rng;
 
-use crate::utils::of32;
+use crate::{
+    proc_gen::ProceduralValue,
+    utils::{of32, proc_field},
+};
 
 use super::vector_function::*;
 
@@ -33,8 +36,8 @@ impl<Vx: VectorFn, Vy: VectorFn> Field for GeneralVectorField<Vx, Vy> {
     }
 }
 
-impl<Vx: VectorFn, Vy: VectorFn> GeneralVectorField<Vx, Vy> {
-    pub fn from_rng<T: Rng>(rng: &mut T) -> Self {
+impl<Vx: VectorFn, Vy: VectorFn> ProceduralValue for GeneralVectorField<Vx, Vy> {
+    fn from_rng<T: Rng>(rng: &mut T) -> Self {
         let vx = Vx::from_rng(rng);
         let vy = Vy::from_rng(rng);
         Self { vx, vy }
@@ -45,6 +48,13 @@ impl<Vx: VectorFn, Vy: VectorFn> GeneralVectorField<Vx, Vy> {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct VectorField {
     field: FieldType,
+}
+impl VectorField {
+    pub fn new<T: Into<FieldType>>(field: T) -> Self {
+        VectorField {
+            field: field.into(),
+        }
+    }
 }
 
 impl std::ops::Deref for VectorField {
@@ -65,6 +75,7 @@ pub enum FieldType {
     Source(SourceField),
     Sink(SinkField),
     Circular(CircularField),
+    Stationary(StationaryField),
 }
 
 #[derive(Debug, Clone, derive_more::Deref)]
@@ -73,11 +84,14 @@ pub struct HillyBowlField {
     field: GeneralVectorField<ConstantDir, SinX2Y2>,
 }
 
+proc_field!(HillyBowlField);
+
 #[derive(Debug, Clone, derive_more::Deref)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SaddleField {
     field: GeneralVectorField<Kx, Ky>,
 }
+proc_field!(SaddleField);
 
 #[derive(Debug, Clone, derive_more::Deref)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -85,14 +99,38 @@ pub struct SourceField {
     field: GeneralVectorField<Kx, Ky>,
 }
 
+proc_field!(SourceField);
+
 #[derive(Debug, Clone, derive_more::Deref)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SinkField {
     field: GeneralVectorField<Kx, Ky>,
 }
 
+proc_field!(SinkField);
+
+/// A field that rotates ccw about the origin.
 #[derive(Debug, Clone, derive_more::Deref)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CircularField {
     field: GeneralVectorField<Kx, Ky>,
+}
+
+proc_field!(CircularField);
+
+/// A field that is zero everywhere.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct StationaryField;
+
+impl ProceduralValue for StationaryField {
+    fn from_rng<T: Rng>(_: &mut T) -> Self {
+        Self
+    }
+}
+
+impl Field for StationaryField {
+    fn v_xy(&self, _: Point2<of32>) -> Vector2<of32> {
+        Vector2::zeros()
+    }
 }

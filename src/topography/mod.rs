@@ -3,9 +3,12 @@
 //! Defines the topography of the world, i.e. the shape of terrain, along with biomes, structures,
 //! features, etc.
 
-use crate::utils::*;
+use crate::{
+    proc_gen::{MapSeed, ProceduralValue},
+    utils::*,
+};
 use nalgebra::{Point2, Vector2};
-use vector_field::{Field, VectorField};
+use vector_field::{CircularField, Field, FieldType, VectorField};
 
 pub mod vector_field;
 pub mod vector_function;
@@ -14,6 +17,17 @@ pub mod vector_function;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WorldMap {
     field: FieldTree,
+}
+
+impl WorldMap {
+    pub fn new(seed: MapSeed) -> Self {
+        let mut rng = seed.into_small_rng();
+        let field = VectorField::new(CircularField::from_rng(&mut rng));
+
+        WorldMap {
+            field: FieldTree::new(field),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
