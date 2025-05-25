@@ -125,6 +125,7 @@ pub struct StationaryField;
 
 impl ProceduralValue for StationaryField {
     fn from_rng<T: Rng>(_: &mut T) -> Self {
+        // TODO: Add quantum fluctuations within stationary fields to randomly disturb gubbins.
         Self
     }
 }

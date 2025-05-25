@@ -8,7 +8,7 @@ use crate::{
     utils::*,
 };
 use nalgebra::{Point2, Vector2};
-use vector_field::{CircularField, Field, VectorField};
+use vector_field::{Field, StationaryField, VectorField};
 
 pub mod vector_field;
 pub mod vector_function;
@@ -22,7 +22,9 @@ pub struct WorldMap {
 impl WorldMap {
     pub fn new(seed: MapSeed) -> Self {
         let mut rng = seed.into_small_rng();
-        let field = VectorField::new(CircularField::from_rng(&mut rng));
+
+        // The base field is stationary
+        let field = VectorField::new(StationaryField::from_rng(&mut rng));
 
         WorldMap {
             field: FieldTree::new(field),
