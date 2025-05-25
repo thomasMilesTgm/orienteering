@@ -17,6 +17,8 @@
 use nalgebra::Point2;
 use rand::Rng;
 
+use crate::utils::of32;
+
 const CONSTANT_K_RANGE: std::ops::Range<f32> = -10.0..10.0;
 
 const SIN_X2_Y2_K_RANGE: std::ops::Range<f32> = -10.0..10.0;
@@ -31,23 +33,23 @@ const JXKY_K_RANGE: std::ops::Range<f32> = -10.0..10.0;
 /// A vector field function, used to define the x or y component of a vector field at a given
 /// point in 2D space.
 pub trait VectorFn {
-    fn v_xy(&self, xy: Point2<f32>) -> f32;
+    fn v_xy(&self, xy: Point2<of32>) -> of32;
     fn from_rng<T: Rng>(rng: &mut T) -> Self;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ConstantDir {
-    pub k: f32,
+    pub k: of32,
 }
 
 impl VectorFn for ConstantDir {
-    fn v_xy(&self, _xy: Point2<f32>) -> f32 {
+    fn v_xy(&self, _xy: Point2<of32>) -> of32 {
         self.k
     }
 
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
-        let k = rng.random_range(CONSTANT_K_RANGE);
+        let k = rng.random_range(CONSTANT_K_RANGE).into();
         Self { k }
     }
 }
@@ -56,19 +58,19 @@ impl VectorFn for ConstantDir {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SinX2Y2 {
-    pub k: f32,
-    pub a: f32,
-    pub b: f32,
+    pub k: of32,
+    pub a: of32,
+    pub b: of32,
 }
 
 impl VectorFn for SinX2Y2 {
-    fn v_xy(&self, xy: Point2<f32>) -> f32 {
+    fn v_xy(&self, xy: Point2<of32>) -> of32 {
         self.k * (self.a * xy.x.powi(2) + self.b * xy.y.powi(2)).sin()
     }
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
-        let k = rng.random_range(SIN_X2_Y2_K_RANGE);
-        let a = rng.random_range(SIN_X2_Y2_A_RANGE);
-        let b = rng.random_range(SIN_X2_Y2_B_RANGE);
+        let k = rng.random_range(SIN_X2_Y2_K_RANGE).into();
+        let a = rng.random_range(SIN_X2_Y2_A_RANGE).into();
+        let b = rng.random_range(SIN_X2_Y2_B_RANGE).into();
         Self { k, a, b }
     }
 }
@@ -76,24 +78,24 @@ impl VectorFn for SinX2Y2 {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Kx {
-    pub k: f32,
+    pub k: of32,
 }
 
 impl Kx {
     pub fn make_positive(&mut self) {
-        self.k = self.k.abs();
+        *self.k = self.k.abs();
     }
     pub fn make_negative(&mut self) {
-        self.k = -1. * self.k.abs();
+        *self.k = -1. * self.k.abs();
     }
 }
 
 impl VectorFn for Kx {
-    fn v_xy(&self, xy: Point2<f32>) -> f32 {
+    fn v_xy(&self, xy: Point2<of32>) -> of32 {
         self.k * xy.x
     }
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
-        let k = rng.random_range(K_XY_RANGE);
+        let k = rng.random_range(K_XY_RANGE).into();
         Self { k }
     }
 }
@@ -101,24 +103,24 @@ impl VectorFn for Kx {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Ky {
-    pub k: f32,
+    pub k: of32,
 }
 
 impl Ky {
     pub fn make_positive(&mut self) {
-        self.k = self.k.abs();
+        *self.k = self.k.abs();
     }
     pub fn make_negative(&mut self) {
-        self.k = -1. * self.k.abs();
+        *self.k = -1. * self.k.abs();
     }
 }
 
 impl VectorFn for Ky {
-    fn v_xy(&self, xy: Point2<f32>) -> f32 {
+    fn v_xy(&self, xy: Point2<of32>) -> of32 {
         self.k * xy.y
     }
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
-        let k = rng.random_range(K_XY_RANGE);
+        let k = rng.random_range(K_XY_RANGE).into();
         Self { k }
     }
 }
@@ -127,17 +129,17 @@ impl VectorFn for Ky {
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct JxKy {
-    pub j: f32,
-    pub k: f32,
+    pub j: of32,
+    pub k: of32,
 }
 
 impl VectorFn for JxKy {
-    fn v_xy(&self, xy: Point2<f32>) -> f32 {
+    fn v_xy(&self, xy: Point2<of32>) -> of32 {
         self.j * xy.x + self.k * xy.y
     }
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
-        let j = rng.random_range(JXKY_J_RANGE);
-        let k = rng.random_range(JXKY_K_RANGE);
+        let j = rng.random_range(JXKY_J_RANGE).into();
+        let k = rng.random_range(JXKY_K_RANGE).into();
         Self { j, k }
     }
 }
