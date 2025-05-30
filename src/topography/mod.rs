@@ -5,7 +5,7 @@
 
 use crate::{
     proc_gen::{MapSeed, ProceduralValue},
-    utils::*,
+    utils::of32,
 };
 use nalgebra::{Point2, Vector2};
 use rand::rngs::SmallRng;
@@ -17,11 +17,11 @@ pub mod vector_function;
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WorldMap {
+    pub contours: Vec<Contour>,
+
     field: FieldTree,
 
     seed: MapSeed,
-
-    contours: Vec<Contour>,
 
     #[serde(skip)]
     rng: Option<SmallRng>,
@@ -54,29 +54,29 @@ impl WorldMap {
         self.field.make_child(self.field.root_id(), child, area);
     }
 
-    pub fn generate_contour(&mut self, mut from: Point2<of32>, mut length: of32, z: of32) {
+    pub fn generate_contour(&mut self, mut from: Point2<f32>, mut length: f32, z: f32) {
         let mut contour = Contour {
             z,
             ..Default::default()
         };
-        while *length > 0. {
+        while length > 0. {
             let v = self.field.field_vector(from);
 
             contour.points.push(from);
             contour.tangents.push(v);
 
             length -= (v.x.powi(2) + v.y.powi(2)).sqrt();
-            from = from + v;
+            from += v;
         }
     }
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Contour {
-    pub points: Vec<Point2<of32>>,
-    pub tangents: Vec<Vector2<of32>>,
-    pub z: of32,
+    pub points: Vec<Point2<f32>>,
+    pub tangents: Vec<Vector2<f32>>,
+    pub z: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -118,7 +118,7 @@ impl FieldTree {
         child_id
     }
 
-    pub fn field_vector(&self, pt: Point2<of32>) -> Vector2<of32> {
+    pub fn field_vector(&self, pt: Point2<f32>) -> Vector2<f32> {
         self.root_field().field_vector(self, pt)
     }
 
@@ -161,7 +161,7 @@ pub struct FieldNode {
 impl FieldNode {
     /// Compute the vector direction of [`Self::field`], recursively accumulating the effect of
     /// child fields.
-    pub fn field_vector<D>(&self, data: &D, pt: Point2<of32>) -> Vector2<of32>
+    pub fn field_vector<D>(&self, data: &D, pt: Point2<f32>) -> Vector2<f32>
     where
         D: std::ops::Index<FieldID, Output = FieldNode>,
     {
@@ -173,10 +173,7 @@ impl FieldNode {
             let child_area = child.influence.area();
             let child_weight = child_area / this_area;
 
-            let mut child_vector = child.field_vector(data, pt);
-
-            // XXX: Nalgebra doens't like ordered float
-            child_vector.iter_mut().for_each(|v| *v *= child_weight);
+            let child_vector = child_weight * child.field_vector(data, pt);
 
             vector += child_vector;
         }
@@ -184,7 +181,7 @@ impl FieldNode {
         vector
     }
 
-    pub fn child_at_point<D>(&self, data: &D, pt: Point2<of32>) -> Option<&FieldID>
+    pub fn child_at_point<D>(&self, data: &D, pt: Point2<f32>) -> Option<&FieldID>
     where
         D: std::ops::Index<FieldID, Output = FieldNode>,
     {
@@ -213,15 +210,15 @@ pub struct RangeOF<C> {
 }
 
 impl<C> RangeOF<C> {
-    pub fn new(min: of32, max: of32) -> Self {
+    pub fn new(min: f32, max: f32) -> Self {
         RangeOF {
-            min,
-            max,
+            min: min.into(),
+            max: max.into(),
             phantom: std::marker::PhantomData,
         }
     }
-    pub fn contains(&self, value: of32) -> bool {
-        value >= self.min && value <= self.max
+    pub fn contains(&self, value: f32) -> bool {
+        value >= *self.min && value <= *self.max
     }
     pub fn is_empty(&self) -> bool {
         self.min > self.max
@@ -262,28 +259,28 @@ impl AreaOF {
             max: Point2::new(pos, pos),
         }
     }
-    pub fn area(&self) -> of32 {
+    pub fn area(&self) -> f32 {
         self.width() * self.height()
     }
 
-    pub fn width(&self) -> of32 {
-        self.max.x - self.min.x
+    pub fn width(&self) -> f32 {
+        *(self.max.x - self.min.x)
     }
 
-    pub fn height(&self) -> of32 {
-        self.max.y - self.min.y
+    pub fn height(&self) -> f32 {
+        *(self.max.y - self.min.y)
     }
-    pub fn contains(&self, pt: Point2<of32>) -> bool {
-        pt.x >= self.min.x && pt.x <= self.max.x && pt.y >= self.min.y && pt.y <= self.max.y
+    pub fn contains(&self, pt: Point2<f32>) -> bool {
+        pt.x >= *self.min.x && pt.x <= *self.max.x && pt.y >= *self.min.y && pt.y <= *self.max.y
     }
 
     pub fn xy_ranges(&self) -> (XRangeOF, YRangeOF) {
         (self.x_range(), self.y_range())
     }
     pub fn y_range(&self) -> YRangeOF {
-        RangeOF::new(self.min.y, self.max.y)
+        RangeOF::new(*self.min.y, *self.max.y)
     }
     pub fn x_range(&self) -> XRangeOF {
-        RangeOF::new(self.min.x, self.max.x)
+        RangeOF::new(*self.min.x, *self.max.x)
     }
 }

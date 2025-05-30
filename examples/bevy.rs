@@ -4,12 +4,16 @@ use bevy::{
     DefaultPlugins,
     app::{App, Plugin, Startup},
     ecs::{resource::Resource, system::ResMut},
+    math::{
+        Vec2,
+        cubic_splines::{CubicCurve, CubicGenerator, CubicHermite},
+        vec2,
+    },
 };
 use nalgebra::Point2;
 use orienteering::{
     proc_gen::*,
     topography::{AreaOF, WorldMap},
-    utils::of32,
 };
 
 fn main() {
@@ -23,6 +27,7 @@ fn main() {
 pub struct WorldResource {
     pub seed: MapSeed,
     pub map: Option<WorldMap>,
+    pub contour_splines: Vec<CubicCurve<Vec2>>,
 }
 
 pub struct ProcGenPlugins;
@@ -38,16 +43,32 @@ fn init_world(mut world: ResMut<WorldResource>) {
     let seed = world.seed.clone();
     let mut map = WorldMap::new(seed);
 
-    let x0 = of32::from(-100.);
-    let x1 = of32::from(100.);
+    let x0 = -100.;
+    let x1 = 100.;
 
     map.generate_area(AreaOF {
-        min: Point2::new(x0, x0),
-        max: Point2::new(x1, x1),
+        min: Point2::new(x0.into(), x0.into()),
+        max: Point2::new(x1.into(), x1.into()),
     });
 
-    let p0 = of32::from(10.);
-    map.generate_contour(Point2::new(p0, p0), 20_f32.into(), 0_f32.into());
+    let p0 = 10.;
+    map.generate_contour(Point2::new(p0, p0), 20_f32, 0_f32);
+
+    world.contour_splines = map
+        .contours
+        .iter()
+        .flat_map(|c| {
+            let points = c.points.iter().map(|p| vec2(p.x, p.y)).collect::<Vec<_>>();
+            let tangents = c
+                .tangents
+                .iter()
+                .map(|p| vec2(p.x, p.y))
+                .collect::<Vec<_>>();
+
+            let spline = CubicHermite::new(points, tangents);
+            spline.to_curve()
+        })
+        .collect::<Vec<_>>();
 
     world.map = Some(map);
 }

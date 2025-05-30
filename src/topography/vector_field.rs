@@ -4,10 +4,7 @@ use enum_dispatch::enum_dispatch;
 use nalgebra::{Point2, Vector2};
 use rand::Rng;
 
-use crate::{
-    proc_gen::ProceduralValue,
-    utils::{of32, proc_field},
-};
+use crate::{proc_gen::ProceduralValue, utils::proc_field};
 
 use super::vector_function::*;
 
@@ -21,17 +18,17 @@ pub struct GeneralVectorField<Vx: VectorFn, Vy: VectorFn> {
 
 #[enum_dispatch]
 pub trait Field {
-    fn v_xy(&self, xy: Point2<of32>) -> Vector2<of32>;
+    fn v_xy(&self, xy: Point2<f32>) -> Vector2<f32>;
 }
 
 impl<T: Deref<Target = G>, G: Field> Field for T {
-    fn v_xy(&self, xy: Point2<of32>) -> Vector2<of32> {
+    fn v_xy(&self, xy: Point2<f32>) -> Vector2<f32> {
         self.deref().v_xy(xy)
     }
 }
 
 impl<Vx: VectorFn, Vy: VectorFn> Field for GeneralVectorField<Vx, Vy> {
-    fn v_xy(&self, xy: Point2<of32>) -> Vector2<of32> {
+    fn v_xy(&self, xy: Point2<f32>) -> Vector2<f32> {
         Vector2::new(self.vx.v_xy(xy), self.vy.v_xy(xy))
     }
 }
@@ -131,7 +128,7 @@ impl ProceduralValue for StationaryField {
 }
 
 impl Field for StationaryField {
-    fn v_xy(&self, _: Point2<of32>) -> Vector2<of32> {
+    fn v_xy(&self, _: Point2<f32>) -> Vector2<f32> {
         Vector2::zeros()
     }
 }
