@@ -19,9 +19,9 @@ use rand::Rng;
 
 const CONSTANT_K_RANGE: std::ops::Range<f32> = -10.0..10.0;
 
-const SIN_X2_Y2_K_RANGE: std::ops::Range<f32> = -10.0..10.0;
-const SIN_X2_Y2_A_RANGE: std::ops::Range<f32> = -10.0..10.0;
-const SIN_X2_Y2_B_RANGE: std::ops::Range<f32> = -10.0..10.0;
+const SIN_X2_Y2_K_RANGE: std::ops::Range<f32> = 1.0..5.0;
+const SIN_X2_Y2_A_RANGE: std::ops::Range<f32> = 0.0..0.01;
+const SIN_X2_Y2_B_RANGE: std::ops::Range<f32> = 0.0..0.01;
 
 const K_XY_RANGE: std::ops::Range<f32> = -10.0..10.0;
 
@@ -63,7 +63,7 @@ pub struct SinX2Y2 {
 
 impl VectorFn for SinX2Y2 {
     fn v_xy(&self, xy: Point2<f32>) -> f32 {
-        self.k * (self.a * xy.x.powi(2) + self.b * xy.y.powi(2)).sin()
+        self.k * ((self.a * xy.x).powi(2) + (self.b * xy.y).powi(2)).sin()
     }
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
         let k = rng.random_range(SIN_X2_Y2_K_RANGE);
@@ -75,50 +75,63 @@ impl VectorFn for SinX2Y2 {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Kx {
+pub struct KxMinus {
     pub k: f32,
 }
 
-impl Kx {
-    pub fn make_positive(&mut self) {
-        self.k = self.k.abs();
-    }
-    pub fn make_negative(&mut self) {
-        self.k = -1. * self.k.abs();
-    }
-}
-
-impl VectorFn for Kx {
+impl VectorFn for KxMinus {
     fn v_xy(&self, xy: Point2<f32>) -> f32 {
         self.k * xy.x
     }
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
-        let k = rng.random_range(K_XY_RANGE);
+        let k = -rng.random_range(K_XY_RANGE).abs();
         Self { k }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Ky {
+pub struct KxPlus {
     pub k: f32,
 }
 
-impl Ky {
-    pub fn make_positive(&mut self) {
-        self.k = self.k.abs();
+impl VectorFn for KxPlus {
+    fn v_xy(&self, xy: Point2<f32>) -> f32 {
+        self.k * xy.x
     }
-    pub fn make_negative(&mut self) {
-        self.k = -1. * self.k.abs();
+    fn from_rng<T: Rng>(rng: &mut T) -> Self {
+        let k = rng.random_range(K_XY_RANGE).abs();
+        Self { k }
     }
 }
 
-impl VectorFn for Ky {
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct KyMinus {
+    pub k: f32,
+}
+
+impl VectorFn for KyMinus {
     fn v_xy(&self, xy: Point2<f32>) -> f32 {
         self.k * xy.y
     }
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
-        let k = rng.random_range(K_XY_RANGE);
+        let k = -rng.random_range(K_XY_RANGE).abs();
+        Self { k }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct KyPlus {
+    pub k: f32,
+}
+
+impl VectorFn for KyPlus {
+    fn v_xy(&self, xy: Point2<f32>) -> f32 {
+        self.k * xy.y
+    }
+    fn from_rng<T: Rng>(rng: &mut T) -> Self {
+        let k = rng.random_range(K_XY_RANGE).abs();
         Self { k }
     }
 }

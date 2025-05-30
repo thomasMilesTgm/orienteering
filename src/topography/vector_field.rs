@@ -86,14 +86,14 @@ proc_field!(HillyBowlField);
 #[derive(Debug, Clone, derive_more::Deref)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SaddleField {
-    field: GeneralVectorField<Kx, Ky>,
+    field: GeneralVectorField<KxMinus, KyPlus>,
 }
 proc_field!(SaddleField);
 
 #[derive(Debug, Clone, derive_more::Deref)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SourceField {
-    field: GeneralVectorField<Kx, Ky>,
+    field: GeneralVectorField<KxPlus, KyPlus>,
 }
 
 proc_field!(SourceField);
@@ -101,7 +101,7 @@ proc_field!(SourceField);
 #[derive(Debug, Clone, derive_more::Deref)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SinkField {
-    field: GeneralVectorField<Kx, Ky>,
+    field: GeneralVectorField<KxMinus, KyMinus>,
 }
 
 proc_field!(SinkField);
@@ -110,20 +110,10 @@ proc_field!(SinkField);
 #[derive(Debug, Clone, derive_more::Deref)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CircularField {
-    field: GeneralVectorField<Ky, Kx>,
+    field: GeneralVectorField<KyMinus, KxPlus>,
 }
 
-impl ProceduralValue for CircularField {
-    fn from_rng<T: Rng>(rng: &mut T) -> Self {
-        let mut vx = Ky::from_rng(rng);
-        vx.make_negative();
-        let mut vy = Kx::from_rng(rng);
-        vy.make_positive();
-        Self {
-            field: GeneralVectorField { vx, vy },
-        }
-    }
-}
+proc_field!(CircularField);
 
 /// A field that is zero everywhere.
 #[derive(Debug, Clone)]

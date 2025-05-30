@@ -20,14 +20,14 @@ use bevy::{
 use nalgebra::Point2;
 use orienteering::{
     proc_gen::*,
-    topography::{AreaOF, WorldMap},
+    topography::{AreaOF, WorldMap, vector_field::*},
 };
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ProcGenPlugins)
-        .add_systems(Update, draw_contours)
+        .add_systems(Update, (draw_contours, draw_tangents))
         .run();
 }
 
@@ -61,16 +61,27 @@ fn init_world(mut world: ResMut<WorldResource>) {
     let seed = world.seed.clone();
     let mut map = WorldMap::new(seed);
 
-    let x0 = -100.;
-    let x1 = 100.;
+    let x0 = -500.;
+    let x1 = 500.;
 
-    map.generate_area(AreaOF {
+    let field = HillyBowlField::from_rng(map.rng());
+    // let field = SaddleField::from_rng(map.rng());
+    // let field = SinkField::from_rng(map.rng());
+    // let field = CircularField::from_rng(map.rng());
+
+    let area = AreaOF {
         min: Point2::new(x0.into(), x0.into()),
         max: Point2::new(x1.into(), x1.into()),
-    });
+    };
 
-    for p0 in [20., 40., 60.] {
-        map.generate_contour(Point2::new(p0, p0), 200., 0.);
+    map.generate_area(area, field);
+
+    for i in 1..=5 {
+        let x = i as f32 * (x1 - x0) / 4.;
+        for j in 1..=10 {
+            let y = j as f32 * (x1 - x0) / 4.;
+            map.generate_contour(Point2::new(x0 + x, x0 + y), 2000., 0.);
+        }
     }
 
     world.contour_splines = map
@@ -90,7 +101,25 @@ fn init_world(mut world: ResMut<WorldResource>) {
         .collect::<Vec<_>>();
 
     world.map = Some(map);
-    dbg!(&world.map.as_ref());
+    // dbg!(&world.map.as_ref());
+}
+
+fn draw_tangents(world: Res<WorldResource>, mut gizmos: Gizmos) {
+    world
+        .map
+        .as_ref()
+        .unwrap()
+        .contours
+        .iter()
+        .flat_map(|c| c.points.first().zip(c.points.last().zip(c.tangents.last())))
+        .for_each(|(p0, (p, t))| {
+            let p0 = vec2(p0.x, p0.y);
+            let point = vec2(p.x, p.y);
+            let tangent = 20. * vec2(t.x, t.y);
+            gizmos.circle_2d(p0, 1.0, Color::srgb(0.0, 1.0, 0.0));
+            gizmos.circle_2d(point, 1.0, Color::srgb(1.0, 0.0, 0.0));
+            gizmos.arrow_2d(point, point + tangent, Color::srgb(1., 0., 0.));
+        });
 }
 
 fn draw_contours(world: Res<WorldResource>, mut gizmos: Gizmos) {

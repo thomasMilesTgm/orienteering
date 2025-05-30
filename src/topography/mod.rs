@@ -49,8 +49,8 @@ impl WorldMap {
         self.rng.as_mut().unwrap()
     }
 
-    pub fn generate_area(&mut self, area: AreaOF) {
-        let child = VectorField::new(CircularField::from_rng(self.rng()));
+    pub fn generate_area<T: Into<FieldType>>(&mut self, area: AreaOF, field: T) {
+        let child = VectorField::new(field.into());
         self.field.make_child(self.field.root_id(), child, area);
     }
 
@@ -60,10 +60,12 @@ impl WorldMap {
             ..Default::default()
         };
         while length > 0. {
-            let v = self.field.field_vector(from).normalize();
+            let mut v = self.field.field_vector(from);
             if v.magnitude() < 0.0001 {
                 break;
             }
+            v.normalize_mut();
+
             contour.points.push(from);
             contour.tangents.push(v);
 
