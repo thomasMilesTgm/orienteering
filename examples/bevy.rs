@@ -57,8 +57,8 @@ fn init_world(mut world: ResMut<WorldResource>) {
         max: Point2::new(x1.into(), x1.into()),
     });
 
-    let p0 = 1.;
-    map.generate_contour(Point2::new(p0, p0), 200., 0.);
+    let p0 = 2.;
+    map.generate_contour(Point2::new(p0, p0), 20., 0.);
 
     world.contour_splines = map
         .contours
