@@ -50,7 +50,7 @@ impl WorldMap {
     }
 
     pub fn generate_area(&mut self, area: AreaOF) {
-        let child = VectorField::new(HillyBowlField::from_rng(self.rng()));
+        let child = VectorField::new(CircularField::from_rng(self.rng()));
         self.field.make_child(self.field.root_id(), child, area);
     }
 
@@ -60,7 +60,10 @@ impl WorldMap {
             ..Default::default()
         };
         while length > 0. {
-            let v = self.field.field_vector(from);
+            let v = self.field.field_vector(from).normalize();
+            if v.magnitude() < 0.0001 {
+                break;
+            }
             contour.points.push(from);
             contour.tangents.push(v);
 

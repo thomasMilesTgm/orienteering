@@ -110,10 +110,20 @@ proc_field!(SinkField);
 #[derive(Debug, Clone, derive_more::Deref)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CircularField {
-    field: GeneralVectorField<Kx, Ky>,
+    field: GeneralVectorField<Ky, Kx>,
 }
 
-proc_field!(CircularField);
+impl ProceduralValue for CircularField {
+    fn from_rng<T: Rng>(rng: &mut T) -> Self {
+        let mut vx = Ky::from_rng(rng);
+        vx.make_negative();
+        let mut vy = Kx::from_rng(rng);
+        vy.make_positive();
+        Self {
+            field: GeneralVectorField { vx, vy },
+        }
+    }
+}
 
 /// A field that is zero everywhere.
 #[derive(Debug, Clone)]

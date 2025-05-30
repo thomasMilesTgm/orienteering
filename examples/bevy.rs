@@ -4,6 +4,7 @@ use bevy::{
     DefaultPlugins,
     app::{App, Plugin, Startup, Update},
     color::Color,
+    core_pipeline::core_2d::Camera2d,
     ecs::{
         resource::Resource,
         system::{Res, ResMut},
@@ -14,6 +15,7 @@ use bevy::{
         cubic_splines::{CubicCurve, CubicGenerator, CubicHermite},
         vec2,
     },
+    prelude::*,
 };
 use nalgebra::Point2;
 use orienteering::{
@@ -40,9 +42,19 @@ pub struct ProcGenPlugins;
 
 impl Plugin for ProcGenPlugins {
     fn build(&self, app: &mut App) {
-        app.init_resource::<WorldResource>()
-            .add_systems(Startup, init_world);
+        app.init_resource::<WorldResource>().add_systems(
+            Startup,
+            (
+                setup, init_world,
+                //..
+            )
+                .chain(),
+        );
     }
+}
+
+fn setup(mut commands: Commands) {
+    commands.spawn(Camera2d);
 }
 
 fn init_world(mut world: ResMut<WorldResource>) {
@@ -57,8 +69,9 @@ fn init_world(mut world: ResMut<WorldResource>) {
         max: Point2::new(x1.into(), x1.into()),
     });
 
-    let p0 = 2.;
-    map.generate_contour(Point2::new(p0, p0), 20., 0.);
+    for p0 in [20., 40., 60.] {
+        map.generate_contour(Point2::new(p0, p0), 200., 0.);
+    }
 
     world.contour_splines = map
         .contours
@@ -77,7 +90,7 @@ fn init_world(mut world: ResMut<WorldResource>) {
         .collect::<Vec<_>>();
 
     world.map = Some(map);
-    dbg!(&world.as_ref());
+    dbg!(&world.map.as_ref());
 }
 
 fn draw_contours(world: Res<WorldResource>, mut gizmos: Gizmos) {
