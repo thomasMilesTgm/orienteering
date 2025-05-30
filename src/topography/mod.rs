@@ -8,7 +8,8 @@ use crate::{
     utils::*,
 };
 use nalgebra::{Point2, Vector2};
-use vector_field::{Field, StationaryField, VectorField};
+use rand::rngs::SmallRng;
+use vector_field::{CircularField, Field, StationaryField, VectorField};
 
 pub mod vector_field;
 pub mod vector_function;
@@ -17,18 +18,37 @@ pub mod vector_function;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct WorldMap {
     field: FieldTree,
+
+    seed: MapSeed,
+
+    #[serde(skip)]
+    rng: Option<SmallRng>,
 }
 
 impl WorldMap {
     pub fn new(seed: MapSeed) -> Self {
-        let mut rng = seed.into_small_rng();
+        let mut rng = seed.clone().into_small_rng();
 
         // The base field is stationary
         let field = VectorField::new(StationaryField::from_rng(&mut rng));
 
         WorldMap {
             field: FieldTree::new(field),
+            rng: Some(rng),
+            seed,
         }
+    }
+
+    pub fn rng(&mut self) -> &mut SmallRng {
+        if self.rng.is_none() {
+            self.rng = Some(self.seed.clone().into_small_rng());
+        }
+        self.rng.as_mut().unwrap()
+    }
+
+    pub fn generate_area(&mut self, area: AreaOF) {
+        let child = VectorField::new(CircularField::from_rng(self.rng()));
+        self.field.make_child(self.field.root_id(), child, area);
     }
 }
 

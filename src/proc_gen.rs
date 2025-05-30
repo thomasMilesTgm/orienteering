@@ -9,7 +9,8 @@ pub trait ProceduralValue {
     fn from_rng<T: Rng>(rng: &mut T) -> Self;
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MapSeed {
     bytes: [u8; 32],
 }
