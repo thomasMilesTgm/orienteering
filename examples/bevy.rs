@@ -52,7 +52,7 @@ fn init_world(mut world: ResMut<WorldResource>) {
     });
 
     let p0 = 10.;
-    map.generate_contour(Point2::new(p0, p0), 20_f32, 0_f32);
+    map.generate_contour(Point2::new(p0, p0), 100., 10.);
 
     world.contour_splines = map
         .contours
