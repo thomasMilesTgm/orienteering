@@ -2,16 +2,18 @@
 
 use bevy::{
     DefaultPlugins,
-    app::{App, Startup},
-    ecs::{resource::Resource, system::Commands},
+    app::{App, Plugin, Startup},
+    ecs::{
+        resource::Resource,
+        system::{Commands, ResMut},
+    },
 };
 use orienteering::{proc_gen::*, topography::WorldMap};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_systems(Startup, setup)
-        .init_resource::<WorldResource>()
+        .add_plugins(ProcGenPlugins)
         .run();
 }
 
@@ -21,7 +23,16 @@ pub struct WorldResource {
     pub map: Option<WorldMap>,
 }
 
-fn setup(mut commands: Commands) {
-    let seed = MapSeed::default();
-    let _map = WorldMap::new(seed);
+pub struct ProcGenPlugins;
+
+impl Plugin for ProcGenPlugins {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<WorldResource>()
+            .add_systems(Startup, init_world);
+    }
+}
+
+fn init_world(mut world: ResMut<WorldResource>) {
+    let seed = world.seed.clone();
+    world.map = Some(WorldMap::new(seed));
 }
