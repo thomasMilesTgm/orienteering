@@ -61,13 +61,14 @@ impl WorldMap {
         };
         while length > 0. {
             let v = self.field.field_vector(from);
-
             contour.points.push(from);
             contour.tangents.push(v);
 
-            length -= (v.x.powi(2) + v.y.powi(2)).sqrt();
+            length -= v.magnitude();
             from += v;
         }
+
+        self.contours.push(contour);
     }
 }
 
@@ -171,7 +172,11 @@ impl FieldNode {
         if let Some(child) = self.child_at_point(data, pt) {
             let child = &data[*child];
             let child_area = child.influence.area();
-            let child_weight = child_area / this_area;
+            let child_weight = if this_area.is_finite() && this_area > 0. {
+                child_area / this_area
+            } else {
+                1.
+            };
 
             let child_vector = child_weight * child.field_vector(data, pt);
 
