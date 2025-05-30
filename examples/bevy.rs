@@ -2,8 +2,13 @@
 
 use bevy::{
     DefaultPlugins,
-    app::{App, Plugin, Startup},
-    ecs::{resource::Resource, system::ResMut},
+    app::{App, Plugin, Startup, Update},
+    color::Color,
+    ecs::{
+        resource::Resource,
+        system::{Res, ResMut},
+    },
+    gizmos::gizmos::Gizmos,
     math::{
         Vec2,
         cubic_splines::{CubicCurve, CubicGenerator, CubicHermite},
@@ -20,6 +25,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ProcGenPlugins)
+        .add_systems(Update, draw_contours)
         .run();
 }
 
@@ -52,7 +58,7 @@ fn init_world(mut world: ResMut<WorldResource>) {
     });
 
     let p0 = 1.;
-    map.generate_contour(Point2::new(p0, p0), 100., 10.);
+    map.generate_contour(Point2::new(p0, p0), 200., 0.);
 
     world.contour_splines = map
         .contours
@@ -72,4 +78,14 @@ fn init_world(mut world: ResMut<WorldResource>) {
 
     world.map = Some(map);
     dbg!(&world.as_ref());
+}
+
+fn draw_contours(world: Res<WorldResource>, mut gizmos: Gizmos) {
+    world.contour_splines.iter().for_each(|s| {
+        let resolution = 100 * s.segments().len();
+        gizmos.linestrip(
+            s.iter_positions(resolution).map(|pt| pt.extend(0.0)),
+            Color::srgb(1.0, 1.0, 1.0),
+        );
+    });
 }
