@@ -20,8 +20,8 @@ use rand::Rng;
 const CONSTANT_K_RANGE: std::ops::Range<f32> = -10.0..10.0;
 
 const SIN_X2_Y2_K_RANGE: std::ops::Range<f32> = 1.0..5.0;
-const SIN_X2_Y2_A_RANGE: std::ops::Range<f32> = 0.0..0.01;
-const SIN_X2_Y2_B_RANGE: std::ops::Range<f32> = 0.0..0.01;
+const SIN_X2_Y2_A_RANGE: std::ops::Range<f32> = 0.5..5.0;
+const SIN_X2_Y2_B_RANGE: std::ops::Range<f32> = 0.5..5.0;
 
 const K_XY_RANGE: std::ops::Range<f32> = -10.0..10.0;
 

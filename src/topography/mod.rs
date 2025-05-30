@@ -59,18 +59,21 @@ impl WorldMap {
             z,
             ..Default::default()
         };
+
         while length > 0. {
             let mut v = self.field.field_vector(from);
-            if v.magnitude() < 0.0001 {
+
+            if v.magnitude() < 1. {
                 break;
             }
-            v.normalize_mut();
 
-            contour.points.push(from);
-            contour.tangents.push(v);
+            v.normalize_mut();
 
             length -= v.magnitude();
             from += v;
+
+            contour.points.push(from);
+            contour.tangents.push(v);
         }
 
         self.contours.push(contour);
@@ -177,12 +180,14 @@ impl FieldNode {
         if let Some(child) = self.child_at_point(data, pt) {
             let child = &data[*child];
             let child_area = child.influence.area();
+
             let child_weight = if this_area.is_finite() && this_area > 0. {
                 child_area / this_area
             } else {
                 1.
             };
 
+            let pt = child.influence.scale_pt(pt);
             let child_vector = child_weight * child.field_vector(data, pt);
 
             vector += child_vector;
@@ -269,6 +274,15 @@ impl AreaOF {
             max: Point2::new(pos, pos),
         }
     }
+    pub fn scale_pt(&self, pt: Point2<f32>) -> Point2<f32> {
+        let dx = self.width();
+        let dy = self.height();
+
+        let x = pt.x / dx;
+        let y = pt.y / dy;
+        Point2::new(x, y)
+    }
+
     pub fn area(&self) -> f32 {
         self.width() * self.height()
     }
