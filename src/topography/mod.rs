@@ -21,6 +21,8 @@ pub struct WorldMap {
 
     seed: MapSeed,
 
+    contours: Vec<Contour>,
+
     #[serde(skip)]
     rng: Option<SmallRng>,
 }
@@ -36,6 +38,7 @@ impl WorldMap {
             field: FieldTree::new(field),
             rng: Some(rng),
             seed,
+            contours: vec![],
         }
     }
 
@@ -50,6 +53,30 @@ impl WorldMap {
         let child = VectorField::new(CircularField::from_rng(self.rng()));
         self.field.make_child(self.field.root_id(), child, area);
     }
+
+    pub fn generate_contour(&mut self, mut from: Point2<of32>, mut length: of32, z: of32) {
+        let mut contour = Contour {
+            z,
+            ..Default::default()
+        };
+        while *length > 0. {
+            let v = self.field.field_vector(from);
+
+            contour.points.push(from);
+            contour.tangents.push(v);
+
+            length -= (v.x.powi(2) + v.y.powi(2)).sqrt();
+            from = from + v;
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Contour {
+    pub points: Vec<Point2<of32>>,
+    pub tangents: Vec<Vector2<of32>>,
+    pub z: of32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

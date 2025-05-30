@@ -5,7 +5,12 @@ use bevy::{
     app::{App, Plugin, Startup},
     ecs::{resource::Resource, system::ResMut},
 };
-use orienteering::{proc_gen::*, topography::WorldMap};
+use nalgebra::Point2;
+use orienteering::{
+    proc_gen::*,
+    topography::{AreaOF, WorldMap},
+    utils::of32,
+};
 
 fn main() {
     App::new()
@@ -31,5 +36,18 @@ impl Plugin for ProcGenPlugins {
 
 fn init_world(mut world: ResMut<WorldResource>) {
     let seed = world.seed.clone();
-    world.map = Some(WorldMap::new(seed));
+    let mut map = WorldMap::new(seed);
+
+    let x0 = of32::from(-100.);
+    let x1 = of32::from(100.);
+
+    map.generate_area(AreaOF {
+        min: Point2::new(x0, x0),
+        max: Point2::new(x1, x1),
+    });
+
+    let p0 = of32::from(10.);
+    map.generate_contour(Point2::new(p0, p0), 20_f32.into(), 0_f32.into());
+
+    world.map = Some(map);
 }
