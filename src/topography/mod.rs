@@ -9,7 +9,7 @@ use crate::{
 };
 use nalgebra::{Point2, Vector2};
 use rand::rngs::SmallRng;
-use vector_field::{CircularField, Field, StationaryField, VectorField};
+use vector_field::*;
 
 pub mod vector_field;
 pub mod vector_function;
@@ -50,7 +50,7 @@ impl WorldMap {
     }
 
     pub fn generate_area(&mut self, area: AreaOF) {
-        let child = VectorField::new(CircularField::from_rng(self.rng()));
+        let child = VectorField::new(HillyBowlField::from_rng(self.rng()));
         self.field.make_child(self.field.root_id(), child, area);
     }
 

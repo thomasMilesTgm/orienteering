@@ -23,7 +23,7 @@ fn main() {
         .run();
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Debug)]
 pub struct WorldResource {
     pub seed: MapSeed,
     pub map: Option<WorldMap>,
@@ -71,4 +71,5 @@ fn init_world(mut world: ResMut<WorldResource>) {
         .collect::<Vec<_>>();
 
     world.map = Some(map);
+    dbg!(&world.as_ref());
 }
