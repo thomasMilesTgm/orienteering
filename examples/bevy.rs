@@ -3,10 +3,7 @@
 use bevy::{
     DefaultPlugins,
     app::{App, Plugin, Startup},
-    ecs::{
-        resource::Resource,
-        system::{Commands, ResMut},
-    },
+    ecs::{resource::Resource, system::ResMut},
 };
 use orienteering::{proc_gen::*, topography::WorldMap};
 
