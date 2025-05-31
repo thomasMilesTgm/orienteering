@@ -51,7 +51,8 @@ impl WorldMap {
 
     pub fn generate_area<T: Into<FieldType>>(&mut self, area: AreaOF, field: T) {
         let child = VectorField::new(field.into());
-        self.field.make_child(self.field.root_id(), child, area);
+        let parent = self.find_parent_node(&area);
+        self.field.make_child(parent, child, area);
     }
 
     pub fn generate_contour(&mut self, mut from: Point2<f32>, mut length: f32, z: f32) {
@@ -60,23 +61,49 @@ impl WorldMap {
             ..Default::default()
         };
 
-        while length > 0. {
-            let mut v = self.field.field_vector(from);
+        const DT: f32 = 0.1;
+        const CLOSE: f32 = 1.;
 
-            if v.magnitude() < 1. {
+        let mut left_start = false;
+
+        while length > 0. {
+            if !left_start {
+                left_start = contour
+                    .points
+                    .iter()
+                    .any(|pt| (from - *pt).magnitude() > 2. * CLOSE);
+            } else if (from - contour.points[0]).magnitude() < CLOSE {
+                println!("Contour closed at {:?}", from);
                 break;
             }
 
-            v.normalize_mut();
+            let dr = self.field.field_vector(from) * DT;
 
-            length -= v.magnitude();
-            from += v;
+            from += dr;
+            length -= dr.magnitude();
 
             contour.points.push(from);
-            contour.tangents.push(v);
+            contour.tangents.push(dr);
         }
 
         self.contours.push(contour);
+    }
+
+    pub fn generate_island(&mut self, area: AreaOF) {
+        let circular = CircularField::from_rng(self.rng());
+        let dx = area.width() * 0.4;
+        self.generate_area(area, circular);
+        let start = Point2::new(*area.min.x + dx, *area.min.y + dx);
+        self.generate_contour(start, 10000., 0.);
+    }
+
+    fn find_parent_node(&self, area: &AreaOF) -> FieldID {
+        let center = area.center();
+        let mut field_id = self.field.root_id();
+        while let Some(child) = self.field[field_id].child_at_point(&self.field, center) {
+            field_id = *child;
+        }
+        field_id
     }
 }
 
@@ -260,6 +287,14 @@ pub struct AreaOF {
 }
 
 impl AreaOF {
+    pub fn center(&self) -> Point2<f32> {
+        let xc = *self.min.x + (*self.max.x - *self.min.x) / 2.;
+        let yc = *self.min.y + (*self.max.y - *self.min.y) / 2.;
+        let x = xc.is_finite().then_some(xc).unwrap_or_default();
+        let y = yc.is_finite().then_some(yc).unwrap_or_default();
+
+        Point2::new(x, y)
+    }
     pub fn zero() -> Self {
         AreaOF {
             min: Point2::origin(),

@@ -64,25 +64,26 @@ fn init_world(mut world: ResMut<WorldResource>) {
     let x0 = -500.;
     let x1 = 500.;
 
-    let field = HillyBowlField::from_rng(map.rng());
-    // let field = SaddleField::from_rng(map.rng());
-    // let field = SinkField::from_rng(map.rng());
-    // let field = CircularField::from_rng(map.rng());
-
     let area = AreaOF {
         min: Point2::new(x0.into(), x0.into()),
         max: Point2::new(x1.into(), x1.into()),
     };
 
-    map.generate_area(area, field);
+    map.generate_island(area);
 
-    for i in 1..=5 {
-        let x = i as f32 * (x1 - x0) / 4.;
-        for j in 1..=10 {
-            let y = j as f32 * (x1 - x0) / 4.;
-            map.generate_contour(Point2::new(x0 + x, x0 + y), 2000., 0.);
-        }
-    }
+    // let field = HillyBowlField::from_rng(map.rng());
+    // let field = SaddleField::from_rng(map.rng());
+    // let field = SinkField::from_rng(map.rng());
+    // let field = CircularField::from_rng(map.rng());
+    // map.generate_area(area, field);
+    //
+    // for i in 1..=5 {
+    //     let x = i as f32 * (x1 - x0) / 4.;
+    //     for j in 1..=10 {
+    //         let y = j as f32 * (x1 - x0) / 4.;
+    //         map.generate_contour(Point2::new(x0 + x, x0 + y), 2000., 0.);
+    //     }
+    // }
 
     world.contour_splines = map
         .contours

@@ -65,6 +65,7 @@ impl VectorFn for SinX2Y2 {
     fn v_xy(&self, xy: Point2<f32>) -> f32 {
         self.k * ((self.a * xy.x).powi(2) + (self.b * xy.y).powi(2)).sin()
     }
+
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
         let k = rng.random_range(SIN_X2_Y2_K_RANGE);
         let a = rng.random_range(SIN_X2_Y2_A_RANGE);
