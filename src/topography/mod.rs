@@ -79,6 +79,11 @@ impl WorldMap {
 
             let dr = self.field.field_vector(from) * DT;
 
+            if dr.magnitude() < 0.01 {
+                println!("Contour became stationary at {:?}", from);
+                break;
+            }
+
             from += dr;
             length -= dr.magnitude();
 
