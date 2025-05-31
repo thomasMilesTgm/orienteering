@@ -3,6 +3,7 @@ use std::ops::Deref;
 use enum_dispatch::enum_dispatch;
 use nalgebra::{Point2, Vector2};
 use rand::Rng;
+use strum::{EnumIter, IntoEnumIterator};
 
 use crate::{proc_gen::ProceduralValue, utils::proc_field};
 
@@ -63,8 +64,9 @@ impl std::ops::Deref for VectorField {
 }
 
 /// Vector field types used to generate terrain
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, strum::EnumDiscriminants)]
 #[enum_dispatch(Field)]
+#[strum_discriminants(name(FieldKind), derive(EnumIter))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum FieldType {
     HillyBowl(HillyBowlField),
@@ -73,6 +75,24 @@ pub enum FieldType {
     Sink(SinkField),
     Circular(CircularField),
     Stationary(StationaryField),
+}
+
+impl ProceduralValue for FieldType {
+    /// Randomly generate a non-stationary [`FieldType`]
+    fn from_rng<T: Rng>(rng: &mut T) -> Self {
+        let kinds = FieldKind::iter()
+            .filter(|f| f != &FieldKind::Stationary)
+            .collect::<Vec<_>>();
+        let i = rng.random_range(0..kinds.len());
+        match kinds[i] {
+            FieldKind::HillyBowl => HillyBowlField::from_rng(rng).into(),
+            FieldKind::Saddle => SaddleField::from_rng(rng).into(),
+            FieldKind::Source => SourceField::from_rng(rng).into(),
+            FieldKind::Sink => SinkField::from_rng(rng).into(),
+            FieldKind::Circular => CircularField::from_rng(rng).into(),
+            FieldKind::Stationary => StationaryField::from_rng(rng).into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, derive_more::Deref)]

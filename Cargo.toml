@@ -21,6 +21,7 @@ nalgebra = "0.33.2"
 ordered-float = { version = "5.0.0", features = ["serde"] }
 rand = { version = "0.9.1", features = ["small_rng", "std_rng"] }
 serde = { version = "1.0.219", features = ["derive"], optional = true }
+strum = { version = "0.27.1", features = ["derive"] }
 
 [dev-dependencies]
 bevy = "0.16.0"
