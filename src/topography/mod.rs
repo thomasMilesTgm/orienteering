@@ -19,9 +19,9 @@ pub mod vector_function;
 pub struct WorldMap {
     pub contours: Vec<Contour>,
 
-    field: FieldTree,
+    pub field: FieldTree,
 
-    seed: MapSeed,
+    pub seed: MapSeed,
 
     #[serde(skip)]
     rng: Option<SmallRng>,
@@ -96,8 +96,17 @@ impl WorldMap {
 
     pub fn generate_island(&mut self, area: AreaOF) {
         let circular = CircularField::from_rng(self.rng());
-        let dx = area.width() * 0.4;
         self.generate_area(area, circular);
+
+        for child_area in area.quadrants() {
+            let field = FieldType::from_rng(self.rng());
+            self.generate_area(child_area, field);
+        }
+        // let hilly = HillyBowlField::from_rng(self.rng());
+        // self.generate_area(area, hilly);
+
+        let dx = area.width() * 0.4;
+
         let start = Point2::new(*area.min.x + dx, *area.min.y + dx);
         self.generate_contour(start, 10000., 0.);
     }
@@ -207,19 +216,19 @@ impl FieldNode {
         D: std::ops::Index<FieldID, Output = FieldNode>,
     {
         let this_area = self.influence.area();
-        let mut vector = self.field.v_xy(pt);
+        let mut vector = self.field.v_xy(self.influence.scale_pt(pt));
 
         if let Some(child) = self.child_at_point(data, pt) {
             let child = &data[*child];
             let child_area = child.influence.area();
 
             let child_weight = if this_area.is_finite() && this_area > 0. {
-                child_area / this_area
+                let closeness = child.influence.edge_closeness(pt);
+                0.05 * closeness * child_area / this_area
             } else {
                 1.
             };
 
-            let pt = child.influence.scale_pt(pt);
             let child_vector = child_weight * child.field_vector(data, pt);
 
             vector += child_vector;
@@ -292,6 +301,39 @@ pub struct AreaOF {
 }
 
 impl AreaOF {
+    pub fn edge_closeness(&self, pt: Point2<f32>) -> f32 {
+        let c = self.center();
+        let dc = c - pt;
+        let pc_width = 1. - 2. * dc.x.abs() / self.width();
+        let pc_height = 1. - 2. * dc.y.abs() / self.height();
+
+        pc_width.min(pc_height)
+    }
+    pub fn quadrants(&self) -> [Self; 4] {
+        let center = self.center();
+        let x0 = *self.min.x;
+        let y0 = *self.min.y;
+        let x1 = *self.max.x;
+        let y1 = *self.max.y;
+        [
+            AreaOF {
+                min: Point2::new(x0.into(), y0.into()),
+                max: Point2::new(center.x.into(), center.y.into()),
+            },
+            AreaOF {
+                min: Point2::new(center.x.into(), y0.into()),
+                max: Point2::new(x1.into(), center.y.into()),
+            },
+            AreaOF {
+                min: Point2::new(x0.into(), center.y.into()),
+                max: Point2::new(center.x.into(), y1.into()),
+            },
+            AreaOF {
+                min: Point2::new(center.x.into(), center.y.into()),
+                max: Point2::new(x1.into(), y1.into()),
+            },
+        ]
+    }
     pub fn center(&self) -> Point2<f32> {
         let xc = *self.min.x + (*self.max.x - *self.min.x) / 2.;
         let yc = *self.min.y + (*self.max.y - *self.min.y) / 2.;
@@ -313,6 +355,14 @@ impl AreaOF {
             min: Point2::new(neg, neg),
             max: Point2::new(pos, pos),
         }
+    }
+    pub fn un_scale_pt(&self, pt: Point2<f32>) -> Point2<f32> {
+        let dx = self.width();
+        let dy = self.height();
+
+        let x = pt.x * dx;
+        let y = pt.y * dy;
+        Point2::new(x, y)
     }
     pub fn scale_pt(&self, pt: Point2<f32>) -> Point2<f32> {
         let dx = self.width();

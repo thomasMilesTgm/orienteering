@@ -69,22 +69,22 @@ fn init_world(mut world: ResMut<WorldResource>) {
         max: Point2::new(x1.into(), x1.into()),
     };
 
-    // map.generate_island(area);
+    map.generate_island(area);
 
     // let field = HillyBowlField::from_rng(map.rng());
     // let field = SaddleField::from_rng(map.rng());
-    let field = SinkField::from_rng(map.rng());
+    // let field = SinkField::from_rng(map.rng());
     // let field = CircularField::from_rng(map.rng());
 
-    map.generate_area(area, field);
+    // map.generate_area(area, field);
 
-    for i in 1..=5 {
-        let x = i as f32 * (x1 - x0) / 4.;
-        for j in 1..=10 {
-            let y = j as f32 * (x1 - x0) / 4.;
-            map.generate_contour(Point2::new(x0 + x, x0 + y), 2000., 0.);
-        }
-    }
+    // for i in 1..=5 {
+    //     let x = i as f32 * (x1 - x0) / 4.;
+    //     for j in 1..=10 {
+    //         let y = j as f32 * (x1 - x0) / 4.;
+    //         map.generate_contour(Point2::new(x0 + x, x0 + y), 2000., 0.);
+    //     }
+    // }
 
     world.contour_splines = map
         .contours
@@ -102,8 +102,8 @@ fn init_world(mut world: ResMut<WorldResource>) {
         })
         .collect::<Vec<_>>();
 
+    // dbg!(&map.field);
     world.map = Some(map);
-    // dbg!(&world.map.as_ref());
 }
 
 fn draw_tangents(world: Res<WorldResource>, mut gizmos: Gizmos) {
