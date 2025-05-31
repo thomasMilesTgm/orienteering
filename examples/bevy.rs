@@ -23,11 +23,15 @@ use orienteering::{
     topography::{AreaOF, WorldMap, vector_field::*},
 };
 
+const X0: f32 = -500.0;
+const X1: f32 = 500.0;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ProcGenPlugins)
         .add_systems(Update, (draw_contours, draw_tangents))
+        .add_systems(Update, draw_field)
         .run();
 }
 
@@ -58,15 +62,14 @@ fn setup(mut commands: Commands) {
 }
 
 fn init_world(mut world: ResMut<WorldResource>) {
+    world.seed = MapSeed::from_string("".to_string());
     let seed = world.seed.clone();
+
     let mut map = WorldMap::new(seed);
 
-    let x0 = -500.;
-    let x1 = 500.;
-
     let area = AreaOF {
-        min: Point2::new(x0.into(), x0.into()),
-        max: Point2::new(x1.into(), x1.into()),
+        min: Point2::new(X0.into(), X0.into()),
+        max: Point2::new(X1.into(), X1.into()),
     };
 
     map.generate_island(area);
@@ -77,14 +80,6 @@ fn init_world(mut world: ResMut<WorldResource>) {
     // let field = CircularField::from_rng(map.rng());
 
     // map.generate_area(area, field);
-
-    // for i in 1..=5 {
-    //     let x = i as f32 * (x1 - x0) / 4.;
-    //     for j in 1..=10 {
-    //         let y = j as f32 * (x1 - x0) / 4.;
-    //         map.generate_contour(Point2::new(x0 + x, x0 + y), 2000., 0.);
-    //     }
-    // }
 
     world.contour_splines = map
         .contours
@@ -106,7 +101,21 @@ fn init_world(mut world: ResMut<WorldResource>) {
     world.map = Some(map);
 }
 
-fn draw_tangents(world: Res<WorldResource>, mut gizmos: Gizmos) {
+pub fn draw_field(world: Res<WorldResource>, mut gizmos: Gizmos) {
+    for i in 1..=10 {
+        let x = i as f32 * (X1 - X0) / 10.;
+        for j in 1..=10 {
+            let y = j as f32 * (X1 - X0) / 10.;
+            let pt = Point2::new(X0 + x, X0 + y);
+            let v = world.map.as_ref().unwrap().field.field_vector(pt);
+            let tangent = 10. * vec2(v.x, v.y);
+            let pt = vec2(pt.x, pt.y);
+            gizmos.arrow_2d(pt, pt + tangent, Color::srgb(1., 0., 0.));
+        }
+    }
+}
+
+pub fn draw_tangents(world: Res<WorldResource>, mut gizmos: Gizmos) {
     world
         .map
         .as_ref()
@@ -124,7 +133,7 @@ fn draw_tangents(world: Res<WorldResource>, mut gizmos: Gizmos) {
         });
 }
 
-fn draw_contours(world: Res<WorldResource>, mut gizmos: Gizmos) {
+pub fn draw_contours(world: Res<WorldResource>, mut gizmos: Gizmos) {
     world.contour_splines.iter().for_each(|s| {
         let resolution = 100 * s.segments().len();
         gizmos.linestrip(

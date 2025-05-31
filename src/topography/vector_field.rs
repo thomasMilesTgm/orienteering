@@ -82,6 +82,7 @@ impl ProceduralValue for FieldType {
     fn from_rng<T: Rng>(rng: &mut T) -> Self {
         let kinds = FieldKind::iter()
             .filter(|f| f != &FieldKind::Stationary)
+            .filter(|f| f != &FieldKind::Sink)
             .collect::<Vec<_>>();
         let i = rng.random_range(0..kinds.len());
         match kinds[i] {

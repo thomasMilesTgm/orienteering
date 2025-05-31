@@ -65,6 +65,7 @@ impl WorldMap {
         const CLOSE: f32 = 1.;
 
         let mut left_start = false;
+        let p0 = from;
 
         while length > 0. {
             if !left_start {
@@ -91,6 +92,35 @@ impl WorldMap {
             contour.tangents.push(dr);
         }
 
+        contour.points.reverse();
+        contour.tangents.reverse();
+        left_start = false;
+        from = p0;
+        while length > 0. {
+            if !left_start {
+                left_start = contour
+                    .points
+                    .iter()
+                    .any(|pt| (from - *pt).magnitude() > 2. * CLOSE);
+            } else if (from - contour.points[0]).magnitude() < CLOSE {
+                println!("Contour closed at {:?}", from);
+                break;
+            }
+
+            let dr = -self.field.field_vector(from) * DT;
+
+            if dr.magnitude() < 0.01 {
+                println!("Contour became stationary at {:?}", from);
+                break;
+            }
+
+            from += dr;
+            length -= dr.magnitude();
+
+            contour.points.push(from);
+            contour.tangents.push(dr);
+        }
+
         self.contours.push(contour);
     }
 
@@ -99,16 +129,26 @@ impl WorldMap {
         self.generate_area(area, circular);
 
         for child_area in area.quadrants() {
-            let field = FieldType::from_rng(self.rng());
+            let field = StationaryField::from_rng(self.rng());
             self.generate_area(child_area, field);
+            for g in child_area.quadrants() {
+                let field = FieldType::from_rng(self.rng());
+                self.generate_area(g, field);
+                for gg in g.quadrants() {
+                    let field = FieldType::from_rng(self.rng());
+                    self.generate_area(gg, field);
+                }
+            }
         }
-        // let hilly = HillyBowlField::from_rng(self.rng());
-        // self.generate_area(area, hilly);
 
-        let dx = area.width() * 0.4;
-
-        let start = Point2::new(*area.min.x + dx, *area.min.y + dx);
-        self.generate_contour(start, 10000., 0.);
+        for d in 1..=10 {
+            for e in [0.05, 0.95] {
+                let dx = area.width() * e;
+                let dy = area.height() * d as f32 / 10.;
+                let start = Point2::new(*area.min.x + dx, *area.min.y + dy);
+                self.generate_contour(start, 10000., 0.);
+            }
+        }
     }
 
     fn find_parent_node(&self, area: &AreaOF) -> FieldID {
@@ -164,7 +204,6 @@ impl FieldTree {
 
         let parent = &mut self[parent];
         parent.children.push(child_id);
-
         child_id
     }
 
@@ -220,11 +259,9 @@ impl FieldNode {
 
         if let Some(child) = self.child_at_point(data, pt) {
             let child = &data[*child];
-            let child_area = child.influence.area();
 
             let child_weight = if this_area.is_finite() && this_area > 0. {
-                let closeness = child.influence.edge_closeness(pt);
-                0.05 * closeness * child_area / this_area
+                child.influence.edge_closeness(pt)
             } else {
                 1.
             };
