@@ -8,8 +8,7 @@ use crate::{
     utils::of32,
 };
 use field_operations::{LineIntegral, LineIntegralCfg};
-use nalgebra::{Point2, RealField, Vector2};
-use ordered_float::{Float, FloatCore};
+use nalgebra::{Point2, Vector2};
 use rand::rngs::SmallRng;
 use vector_field::*;
 
@@ -28,6 +27,15 @@ pub struct WorldMap {
 
     #[serde(skip)]
     rng: Option<SmallRng>,
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct MapGenCfg {
+    pub n: usize,
+    pub zmin: f32,
+    pub zmax: f32,
+    pub area: AreaOF,
 }
 
 impl WorldMap {
@@ -58,76 +66,21 @@ impl WorldMap {
         self.field.make_child(parent, child, area);
     }
 
-    pub fn generate_contour(&mut self, cfg: &LineIntegralCfg, z: f32) {
+    pub fn generate_contour<F: Into<of32>>(&mut self, cfg: &LineIntegralCfg, z: F) {
         self.contours.push(Contour {
-            z,
+            z: z.into(),
             line: LineIntegral::solve(&self.field, cfg),
         });
-
-        // const DT: f32 = 0.1;
-        // const CLOSE: f32 = 1.;
-        //
-        // let mut left_start = false;
-        // let p0 = from;
-        //
-        // while length > 0. {
-        //     if !left_start {
-        //         left_start = contour
-        //             .points
-        //             .iter()
-        //             .any(|pt| (from - *pt).magnitude() > 2. * CLOSE);
-        //     } else if (from - contour.points[0]).magnitude() < CLOSE {
-        //         println!("Contour closed at {:?}", from);
-        //         break;
-        //     }
-        //
-        //     let dr = self.field.field_vector(from) * DT;
-        //
-        //     if dr.magnitude() < 0.01 {
-        //         println!("Contour became stationary at {:?}", from);
-        //         break;
-        //     }
-        //
-        //     from += dr;
-        //     length -= dr.magnitude();
-        //
-        //     contour.points.push(from);
-        //     contour.tangents.push(dr);
-        // }
-        //
-        // contour.points.reverse();
-        // contour.tangents.reverse();
-        // left_start = false;
-        // from = p0;
-        // while length > 0. {
-        //     if !left_start {
-        //         left_start = contour
-        //             .points
-        //             .iter()
-        //             .any(|pt| (from - *pt).magnitude() > 2. * CLOSE);
-        //     } else if (from - contour.points[0]).magnitude() < CLOSE {
-        //         println!("Contour closed at {:?}", from);
-        //         break;
-        //     }
-        //
-        //     let dr = -self.field.field_vector(from) * DT;
-        //
-        //     if dr.magnitude() < 0.01 {
-        //         println!("Contour became stationary at {:?}", from);
-        //         break;
-        //     }
-        //
-        //     from += dr;
-        //     length -= dr.magnitude();
-        //
-        //     contour.points.push(from);
-        //     contour.tangents.push(dr);
-        // }
-        //
-        // self.contours.push(contour);
     }
 
-    pub fn generate_island(&mut self, area: AreaOF) {
+    pub fn generate_island(&mut self, cfg: MapGenCfg) {
+        let MapGenCfg {
+            n,
+            zmin,
+            zmax,
+            area,
+        } = cfg;
+
         let circular = CircularField::from_rng(self.rng());
         self.generate_area(area, circular);
 
@@ -144,14 +97,16 @@ impl WorldMap {
             }
         }
 
-        for d in 1..=10 {
-            for e in 1..=2 {
-                let dx = area.width() * e as f32 / 10.;
-                let dy = area.height() * d as f32 / 10.;
-                let start = Point2::new(*area.min.x + dx, *area.min.y + dy);
-                let cfg = LineIntegralCfg::new(start);
-                self.generate_contour(&cfg, 0.);
-            }
+        let z_range = zmax - zmin;
+        let center = area.center();
+        for i in 1..=n {
+            let percent = i as f32 / n as f32;
+            let dx = 0.5 * area.width() * percent;
+            let dy = 0.5 * area.height() * percent;
+            let start = Point2::new(center.x + dx, center.y + dy);
+            let cfg = LineIntegralCfg::new(start);
+            let z = zmax - percent * z_range;
+            self.generate_contour(&cfg, z);
         }
     }
 
@@ -169,7 +124,7 @@ impl WorldMap {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Contour {
     pub line: LineIntegral,
-    pub z: f32,
+    pub z: of32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

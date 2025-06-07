@@ -1,5 +1,7 @@
 //! Minimal example of rendering an [`orienteering::topography::WorldMap`] in [`bevy`].
 
+use std::collections::BTreeMap;
+
 use bevy::{
     DefaultPlugins,
     app::{App, Plugin, Startup, Update},
@@ -11,7 +13,7 @@ use bevy::{
     },
     gizmos::gizmos::Gizmos,
     math::{
-        Vec2,
+        NormedVectorSpace, Vec2,
         cubic_splines::{CubicCurve, CubicGenerator, CubicHermite},
         vec2,
     },
@@ -20,11 +22,15 @@ use bevy::{
 use nalgebra::Point2;
 use orienteering::{
     proc_gen::*,
-    topography::{AreaOF, WorldMap, vector_field::Field},
+    topography::{AreaOF, MapGenCfg, WorldMap, vector_field::Field},
+    utils::of32,
 };
 
 const X0: f32 = -500.0;
 const X1: f32 = 500.0;
+const Z_MIN: f32 = -5.0;
+const Z_MAX: f32 = 10.0;
+const N_CONTOURS: usize = 15;
 
 fn main() {
     App::new()
@@ -33,7 +39,7 @@ fn main() {
         .add_systems(Update, draw_contours)
         // .add_systems(Update, draw_tangents)
         .add_systems(Update, draw_field)
-        .add_systems(Update, draw_divergence)
+        // .add_systems(Update, draw_divergence)
         // .add_systems(Update, draw_curl)
         .run();
 }
@@ -42,7 +48,7 @@ fn main() {
 pub struct WorldResource {
     pub seed: MapSeed,
     pub map: Option<WorldMap>,
-    pub contour_splines: Vec<CubicCurve<Vec2>>,
+    pub contour_splines: BTreeMap<of32, CubicCurve<Vec2>>,
 }
 
 pub struct ProcGenPlugins;
@@ -65,7 +71,7 @@ fn setup(mut commands: Commands) {
 }
 
 fn init_world(mut world: ResMut<WorldResource>) {
-    world.seed = MapSeed::from_string("grongus".to_string());
+    world.seed = MapSeed::from_string("foobar".to_string());
     let seed = world.seed.clone();
 
     let mut map = WorldMap::new(seed);
@@ -75,7 +81,13 @@ fn init_world(mut world: ResMut<WorldResource>) {
         max: Point2::new(X1.into(), X1.into()),
     };
 
-    map.generate_island(area);
+    let cfg = MapGenCfg {
+        n: N_CONTOURS,
+        zmin: Z_MIN,
+        zmax: Z_MAX,
+        area,
+    };
+    map.generate_island(cfg);
 
     // let field = HillyBowlField::from_rng(map.rng());
     // let field = SaddleField::from_rng(map.rng());
@@ -96,11 +108,10 @@ fn init_world(mut world: ResMut<WorldResource>) {
                 .unzip();
 
             let spline = CubicHermite::new(points, tangents);
-            spline.to_curve()
+            spline.to_curve().map(|s| (c.z.into(), s))
         })
-        .collect::<Vec<_>>();
+        .collect();
 
-    // dbg!(&map.field);
     world.map = Some(map);
 }
 
@@ -157,15 +168,19 @@ pub fn draw_curl(world: Res<WorldResource>, mut gizmos: Gizmos) {
 }
 
 pub fn draw_field(world: Res<WorldResource>, mut gizmos: Gizmos) {
-    for i in 1..=10 {
-        let x = i as f32 * (X1 - X0) / 10.;
-        for j in 1..=10 {
-            let y = j as f32 * (X1 - X0) / 10.;
+    const N: usize = 50;
+    for i in 1..=N {
+        let x = i as f32 * (X1 - X0) / N as f32;
+        for j in 1..=N {
+            let y = j as f32 * (X1 - X0) / N as f32;
             let pt = Point2::new(X0 + x, X0 + y);
             let v = world.map.as_ref().unwrap().field.field_vector(pt);
-            let tangent = 10. * vec2(v.x, v.y);
+            let mut tangent = vec2(v.x, v.y);
+            let flatness = tangent.norm().min(0.2);
+            tangent = tangent.normalize() / flatness;
+
             let pt = vec2(pt.x, pt.y);
-            gizmos.arrow_2d(pt, pt + tangent, Color::srgb(1., 0., 0.));
+            gizmos.arrow_2d(pt, pt + tangent, Color::srgb(0.4, 0.4, 0.4));
         }
     }
 }
@@ -189,11 +204,44 @@ pub fn draw_tangents(world: Res<WorldResource>, mut gizmos: Gizmos) {
 }
 
 pub fn draw_contours(world: Res<WorldResource>, mut gizmos: Gizmos) {
-    world.contour_splines.iter().for_each(|s| {
+    let min_z = world
+        .contour_splines
+        .first_key_value()
+        .map(|(k, _)| **k)
+        .unwrap();
+    let max_z = world
+        .contour_splines
+        .last_key_value()
+        .map(|(k, _)| **k)
+        .unwrap();
+
+    let z_range_pos = max_z - min_z.max(0.);
+    let z_range_neg = max_z.min(0.) - min_z;
+
+    world.contour_splines.iter().for_each(|(z, s)| {
+        let z = **z;
         let resolution = 100 * s.segments().len();
-        gizmos.linestrip(
-            s.iter_positions(resolution).map(|pt| pt.extend(0.0)),
-            Color::srgb(1.0, 1.0, 1.0),
-        );
+
+        let hue = match z {
+            z if z > 0. => 120.,
+            z if z < 0. => 240.,
+            _ => 180.,
+        };
+
+        let saturation = match z {
+            0. => 0.,
+            z if z > 0. => 1. - z / z_range_pos,
+            _ => 1.,
+        };
+
+        let brightness = match z {
+            z if z > 0. => 0.3 + z / z_range_pos,
+            z if z < 0. => 0.2 + 1. - z.abs() / z_range_neg,
+            _ => 1.,
+        };
+
+        let color = Color::hsv(hue, saturation, brightness);
+
+        gizmos.linestrip(s.iter_positions(resolution).map(|pt| pt.extend(0.0)), color);
     });
 }
