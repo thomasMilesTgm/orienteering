@@ -7,6 +7,7 @@ use crate::{
     proc_gen::{MapSeed, ProceduralValue},
     utils::of32,
 };
+use field_operations::{LineIntegral, LineIntegralCfg};
 use nalgebra::{Point2, Vector2};
 use rand::rngs::SmallRng;
 use vector_field::*;
@@ -56,73 +57,73 @@ impl WorldMap {
         self.field.make_child(parent, child, area);
     }
 
-    pub fn generate_contour(&mut self, mut from: Point2<f32>, mut length: f32, z: f32) {
-        let mut contour = Contour {
+    pub fn generate_contour(&mut self, cfg: &LineIntegralCfg, z: f32) {
+        self.contours.push(Contour {
             z,
-            ..Default::default()
-        };
+            line: LineIntegral::solve(&self.field, cfg),
+        });
 
-        const DT: f32 = 0.1;
-        const CLOSE: f32 = 1.;
-
-        let mut left_start = false;
-        let p0 = from;
-
-        while length > 0. {
-            if !left_start {
-                left_start = contour
-                    .points
-                    .iter()
-                    .any(|pt| (from - *pt).magnitude() > 2. * CLOSE);
-            } else if (from - contour.points[0]).magnitude() < CLOSE {
-                println!("Contour closed at {:?}", from);
-                break;
-            }
-
-            let dr = self.field.field_vector(from) * DT;
-
-            if dr.magnitude() < 0.01 {
-                println!("Contour became stationary at {:?}", from);
-                break;
-            }
-
-            from += dr;
-            length -= dr.magnitude();
-
-            contour.points.push(from);
-            contour.tangents.push(dr);
-        }
-
-        contour.points.reverse();
-        contour.tangents.reverse();
-        left_start = false;
-        from = p0;
-        while length > 0. {
-            if !left_start {
-                left_start = contour
-                    .points
-                    .iter()
-                    .any(|pt| (from - *pt).magnitude() > 2. * CLOSE);
-            } else if (from - contour.points[0]).magnitude() < CLOSE {
-                println!("Contour closed at {:?}", from);
-                break;
-            }
-
-            let dr = -self.field.field_vector(from) * DT;
-
-            if dr.magnitude() < 0.01 {
-                println!("Contour became stationary at {:?}", from);
-                break;
-            }
-
-            from += dr;
-            length -= dr.magnitude();
-
-            contour.points.push(from);
-            contour.tangents.push(dr);
-        }
-
-        self.contours.push(contour);
+        // const DT: f32 = 0.1;
+        // const CLOSE: f32 = 1.;
+        //
+        // let mut left_start = false;
+        // let p0 = from;
+        //
+        // while length > 0. {
+        //     if !left_start {
+        //         left_start = contour
+        //             .points
+        //             .iter()
+        //             .any(|pt| (from - *pt).magnitude() > 2. * CLOSE);
+        //     } else if (from - contour.points[0]).magnitude() < CLOSE {
+        //         println!("Contour closed at {:?}", from);
+        //         break;
+        //     }
+        //
+        //     let dr = self.field.field_vector(from) * DT;
+        //
+        //     if dr.magnitude() < 0.01 {
+        //         println!("Contour became stationary at {:?}", from);
+        //         break;
+        //     }
+        //
+        //     from += dr;
+        //     length -= dr.magnitude();
+        //
+        //     contour.points.push(from);
+        //     contour.tangents.push(dr);
+        // }
+        //
+        // contour.points.reverse();
+        // contour.tangents.reverse();
+        // left_start = false;
+        // from = p0;
+        // while length > 0. {
+        //     if !left_start {
+        //         left_start = contour
+        //             .points
+        //             .iter()
+        //             .any(|pt| (from - *pt).magnitude() > 2. * CLOSE);
+        //     } else if (from - contour.points[0]).magnitude() < CLOSE {
+        //         println!("Contour closed at {:?}", from);
+        //         break;
+        //     }
+        //
+        //     let dr = -self.field.field_vector(from) * DT;
+        //
+        //     if dr.magnitude() < 0.01 {
+        //         println!("Contour became stationary at {:?}", from);
+        //         break;
+        //     }
+        //
+        //     from += dr;
+        //     length -= dr.magnitude();
+        //
+        //     contour.points.push(from);
+        //     contour.tangents.push(dr);
+        // }
+        //
+        // self.contours.push(contour);
     }
 
     pub fn generate_island(&mut self, area: AreaOF) {
@@ -143,11 +144,12 @@ impl WorldMap {
         }
 
         for d in 1..=10 {
-            for e in [0.05, 0.95] {
-                let dx = area.width() * e;
+            for e in 1..=10 {
+                let dx = area.width() * e as f32 / 10.;
                 let dy = area.height() * d as f32 / 10.;
                 let start = Point2::new(*area.min.x + dx, *area.min.y + dy);
-                self.generate_contour(start, 10000., 0.);
+                let cfg = LineIntegralCfg::new(start);
+                self.generate_contour(&cfg, 0.);
             }
         }
     }
@@ -165,8 +167,7 @@ impl WorldMap {
 #[derive(Debug, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Contour {
-    pub points: Vec<Point2<f32>>,
-    pub tangents: Vec<Vector2<f32>>,
+    pub line: LineIntegral,
     pub z: f32,
 }
 

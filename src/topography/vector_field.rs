@@ -20,6 +20,20 @@ pub struct GeneralVectorField<Vx: VectorFn, Vy: VectorFn> {
 #[enum_dispatch]
 pub trait Field {
     fn v_xy(&self, xy: Point2<f32>) -> Vector2<f32>;
+
+    fn divergence(&self, xy: Point2<f32>, dt: f32) -> f32 {
+        let fxy = self.v_xy(xy);
+        let xy_next = xy + fxy * dt;
+        let dxy = xy_next - xy;
+        dxy.dot(&fxy) / dt
+    }
+
+    fn curl(&self, xy: Point2<f32>, dt: f32) -> f32 {
+        let fxy = self.v_xy(xy);
+        let xy_next = xy + fxy * dt;
+        let dxy = xy_next - xy;
+        (fxy.x * dxy.y - fxy.y * dxy.x) / dt
+    }
 }
 
 impl<T: Deref<Target = G>, G: Field> Field for T {

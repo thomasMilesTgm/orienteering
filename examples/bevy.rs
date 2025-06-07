@@ -20,7 +20,7 @@ use bevy::{
 use nalgebra::Point2;
 use orienteering::{
     proc_gen::*,
-    topography::{AreaOF, WorldMap, vector_field::*},
+    topography::{AreaOF, WorldMap, vector_field::Field},
 };
 
 const X0: f32 = -500.0;
@@ -30,8 +30,11 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(ProcGenPlugins)
-        .add_systems(Update, (draw_contours, draw_tangents))
+        .add_systems(Update, draw_contours)
+        // .add_systems(Update, draw_tangents)
         .add_systems(Update, draw_field)
+        .add_systems(Update, draw_divergence)
+        // .add_systems(Update, draw_curl)
         .run();
 }
 
@@ -85,12 +88,12 @@ fn init_world(mut world: ResMut<WorldResource>) {
         .contours
         .iter()
         .flat_map(|c| {
-            let points = c.points.iter().map(|p| vec2(p.x, p.y)).collect::<Vec<_>>();
-            let tangents = c
-                .tangents
+            let (points, tangents): (Vec<_>, Vec<_>) = c
+                .line
+                .points
                 .iter()
-                .map(|p| vec2(p.x, p.y))
-                .collect::<Vec<_>>();
+                .map(|p| (vec2(p.xy.x, p.xy.y), vec2(p.v_xy.x, p.v_xy.y)))
+                .unzip();
 
             let spline = CubicHermite::new(points, tangents);
             spline.to_curve()
@@ -99,6 +102,58 @@ fn init_world(mut world: ResMut<WorldResource>) {
 
     // dbg!(&map.field);
     world.map = Some(map);
+}
+
+pub fn draw_divergence(world: Res<WorldResource>, mut gizmos: Gizmos) {
+    for i in 1..=10 {
+        let x = i as f32 * (X1 - X0) / 10.;
+        for j in 1..=10 {
+            let y = j as f32 * (X1 - X0) / 10.;
+            let pt = Point2::new(X0 + x, X0 + y);
+            let div = world.map.as_ref().unwrap().field.divergence(pt, 1.);
+            let isometry = Isometry2d::from_translation(vec2(pt.x, pt.y));
+
+            if div.is_finite() {
+                let radius = div.abs().clamp(2., 20.);
+
+                let color = if div.is_sign_negative() {
+                    Color::srgb(radius / 25., 0., 0.)
+                } else {
+                    Color::srgb(0., 0., radius / 25.)
+                };
+
+                gizmos.cross_2d(isometry, radius, color);
+            } else {
+                let color = if div.is_sign_negative() {
+                    Color::srgb(1., 0., 0.)
+                } else {
+                    Color::srgb(0., 0., 1.)
+                };
+                gizmos.cross_2d(isometry, 20., color);
+            }
+        }
+    }
+}
+pub fn draw_curl(world: Res<WorldResource>, mut gizmos: Gizmos) {
+    for i in 1..=10 {
+        let x = i as f32 * (X1 - X0) / 10.;
+        for j in 1..=10 {
+            let y = j as f32 * (X1 - X0) / 10.;
+            let pt = Point2::new(X0 + x, X0 + y);
+            let curl = world.map.as_ref().unwrap().field.curl(pt, 0.01);
+            let isometry = Isometry2d::from_translation(vec2(pt.x, pt.y));
+
+            let radius = (curl.abs() * 10000.).min(20.);
+
+            let color = if curl.is_sign_negative() {
+                Color::srgb(radius / 25., 0., 0.)
+            } else {
+                Color::srgb(0., 0., radius / 25.)
+            };
+
+            gizmos.circle_2d(isometry, radius, color);
+        }
+    }
 }
 
 pub fn draw_field(world: Res<WorldResource>, mut gizmos: Gizmos) {
@@ -122,11 +177,11 @@ pub fn draw_tangents(world: Res<WorldResource>, mut gizmos: Gizmos) {
         .unwrap()
         .contours
         .iter()
-        .flat_map(|c| c.points.first().zip(c.points.last().zip(c.tangents.last())))
-        .for_each(|(p0, (p, t))| {
-            let p0 = vec2(p0.x, p0.y);
-            let point = vec2(p.x, p.y);
-            let tangent = 20. * vec2(t.x, t.y);
+        .flat_map(|c| c.line.points.first().zip(c.line.points.last()))
+        .for_each(|(p0, p1)| {
+            let p0 = vec2(p0.xy.x, p0.xy.x);
+            let point = vec2(p1.xy.x, p1.xy.y);
+            let tangent = 20. * vec2(p1.v_xy.x, p1.v_xy.y);
             gizmos.circle_2d(p0, 1.0, Color::srgb(0.0, 1.0, 0.0));
             gizmos.circle_2d(point, 1.0, Color::srgb(1.0, 0.0, 0.0));
             gizmos.arrow_2d(point, point + tangent, Color::srgb(1., 0., 0.));
