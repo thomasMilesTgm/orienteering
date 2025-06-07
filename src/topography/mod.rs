@@ -144,7 +144,7 @@ impl WorldMap {
         }
 
         for d in 1..=10 {
-            for e in 1..=10 {
+            for e in 1..=2 {
                 let dx = area.width() * e as f32 / 10.;
                 let dy = area.height() * d as f32 / 10.;
                 let start = Point2::new(*area.min.x + dx, *area.min.y + dy);
@@ -264,12 +264,21 @@ impl FieldNode {
     {
         let this_area = self.influence.area();
         let mut vector = self.field.v_xy(self.influence.scale_pt(pt));
+        let this_divergence = self.field.divergence(self.influence.scale_pt(pt), 0.1);
 
         if let Some(child) = self.child_at_point(data, pt) {
             let child = &data[*child];
 
             let child_weight = if this_area.is_finite() && this_area > 0. {
-                child.influence.edge_closeness(pt)
+                let closeness = child.influence.edge_closeness(pt);
+                let child_divergence = child.field.divergence(child.influence.scale_pt(pt), 0.1);
+                if child_divergence != 0. && this_divergence != 0. {
+                    (child_divergence / this_divergence).abs() * closeness
+                } else if child_divergence != 0. {
+                    1.
+                } else {
+                    closeness
+                }
             } else {
                 1.
             };
