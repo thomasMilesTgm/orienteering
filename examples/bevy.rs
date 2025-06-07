@@ -204,6 +204,9 @@ pub fn draw_tangents(world: Res<WorldResource>, mut gizmos: Gizmos) {
 }
 
 pub fn draw_contours(world: Res<WorldResource>, mut gizmos: Gizmos) {
+    let map = world.map.as_ref().unwrap();
+    let origin_divergence = map.field.divergence(Point2::new(0.001, 0.001), 0.1);
+    dbg!(origin_divergence);
     let min_z = world
         .contour_splines
         .first_key_value()
