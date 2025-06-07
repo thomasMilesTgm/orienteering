@@ -5,7 +5,7 @@ use nalgebra::{Point2, Vector2};
 
 const DT: f32 = 0.1;
 const CLOSE: f32 = 1.;
-const MAX_LENGTH: f32 = 1000.;
+const MAX_LENGTH: f32 = 10000.;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

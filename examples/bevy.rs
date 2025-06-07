@@ -65,7 +65,7 @@ fn setup(mut commands: Commands) {
 }
 
 fn init_world(mut world: ResMut<WorldResource>) {
-    world.seed = MapSeed::from_string("".to_string());
+    world.seed = MapSeed::from_string("grongus".to_string());
     let seed = world.seed.clone();
 
     let mut map = WorldMap::new(seed);

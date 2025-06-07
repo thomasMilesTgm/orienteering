@@ -8,7 +8,8 @@ use crate::{
     utils::of32,
 };
 use field_operations::{LineIntegral, LineIntegralCfg};
-use nalgebra::{Point2, Vector2};
+use nalgebra::{Point2, RealField, Vector2};
+use ordered_float::{Float, FloatCore};
 use rand::rngs::SmallRng;
 use vector_field::*;
 
@@ -272,13 +273,8 @@ impl FieldNode {
             let child_weight = if this_area.is_finite() && this_area > 0. {
                 let closeness = child.influence.edge_closeness(pt);
                 let child_divergence = child.field.divergence(child.influence.scale_pt(pt), 0.1);
-                if child_divergence != 0. && this_divergence != 0. {
-                    (child_divergence / this_divergence).abs() * closeness
-                } else if child_divergence != 0. {
-                    1.
-                } else {
-                    closeness
-                }
+                let net_divergence = child_divergence + this_divergence;
+                closeness * this_divergence.abs().max(child_divergence.abs()) / net_divergence.abs()
             } else {
                 1.
             };
