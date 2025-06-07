@@ -11,6 +11,7 @@ use nalgebra::{Point2, Vector2};
 use rand::rngs::SmallRng;
 use vector_field::*;
 
+pub mod field_operations;
 pub mod vector_field;
 pub mod vector_function;
 
@@ -177,6 +178,12 @@ pub struct FieldID(usize);
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldTree {
     nodes: Vec<FieldNode>,
+}
+
+impl Field for FieldTree {
+    fn v_xy(&self, xy: Point2<f32>) -> Vector2<f32> {
+        self.root_field().field_vector(self, xy)
+    }
 }
 
 impl FieldTree {

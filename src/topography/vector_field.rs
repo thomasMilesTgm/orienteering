@@ -83,6 +83,7 @@ impl ProceduralValue for FieldType {
         let kinds = FieldKind::iter()
             .filter(|f| f != &FieldKind::Stationary)
             .filter(|f| f != &FieldKind::Sink)
+            .filter(|f| f != &FieldKind::Source)
             .collect::<Vec<_>>();
         let i = rng.random_range(0..kinds.len());
         match kinds[i] {
@@ -101,7 +102,6 @@ impl ProceduralValue for FieldType {
 pub struct HillyBowlField {
     field: GeneralVectorField<ConstantDir, SinX2Y2>,
 }
-
 proc_field!(HillyBowlField);
 
 #[derive(Debug, Clone, derive_more::Deref)]
