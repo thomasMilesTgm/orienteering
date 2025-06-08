@@ -334,9 +334,7 @@ mod tests {
 
         let inner = FnType::power(2.0);
 
-        chain!((Power(2.)) => Sin);
-
-        let chain = FnChain::new(inner, outer);
+        let chain = chain!(Power(2.) => Sin);
 
         let f_expect = |x: f32| x.powi(2).sin();
         let df_expect = |x: f32| -2. * x * x.powi(2).cos();
