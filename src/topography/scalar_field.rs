@@ -52,6 +52,90 @@ impl Fn2D {
     }
 }
 
+/// Create a [`FnChain`]
+///
+/// ```rust
+/// use topography::scalar_field::*;
+///
+/// // sin(x^2)
+/// let sin_x_squared = chain!(Power(2) => Sin);
+/// ```
+#[allow(unused)]
+macro_rules! chain {
+    ($inner:expr => $outer:expr) => {
+        FnType::chain($outer.into(), $inner.into())
+    };
+}
+#[allow(unused)]
+pub(crate) use chain;
+
+#[enum_dispatch(DifferentiableFn)]
+#[derive(Debug, Clone)]
+pub enum FnType {
+    Constant(Constant),
+    Exp(Exp),
+    Linear(Linear),
+    Log(Log),
+    Power(Power),
+    Sin(Sin),
+    Chain(FnChain),
+    Product(FnProduct),
+    Quotient(FnQuotient),
+}
+
+impl FnType {
+    pub fn constant(c: f32) -> Self {
+        FnType::Constant(Constant(c))
+    }
+
+    pub fn exp() -> Self {
+        FnType::Exp(Exp)
+    }
+
+    pub fn linear() -> Self {
+        FnType::Linear(Linear)
+    }
+
+    pub fn log() -> Self {
+        FnType::Log(Log)
+    }
+
+    pub fn power(k: f32) -> Self {
+        FnType::Power(Power(k))
+    }
+
+    pub fn sin() -> Self {
+        FnType::Sin(Sin)
+    }
+
+    pub fn product_of(lhs: FnType, rhs: FnType) -> Self {
+        FnType::Product(FnProduct::new(lhs, rhs))
+    }
+
+    pub fn chain(outer: FnType, inner: FnType) -> Self {
+        FnType::Chain(FnChain::new(inner, outer))
+    }
+
+    pub fn quotient_of(lhs: FnType, rhs: FnType) -> Self {
+        FnType::Quotient(FnQuotient::new(lhs, rhs))
+    }
+}
+
+impl std::ops::Mul for FnType {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self::product_of(self, rhs)
+    }
+}
+
+impl std::ops::Div for FnType {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        Self::quotient_of(self, rhs)
+    }
+}
+
 /// A product of [`FnType`]
 #[derive(Debug, Clone)]
 pub struct FnChain {
@@ -137,73 +221,6 @@ impl DifferentiableFn for FnProduct {
     }
 }
 
-#[enum_dispatch(DifferentiableFn)]
-#[derive(Debug, Clone)]
-pub enum FnType {
-    Constant(Constant),
-    Exp(Exp),
-    Linear(Linear),
-    Log(Log),
-    Power(Power),
-    Sin(Sin),
-    Chain(FnChain),
-    Product(FnProduct),
-    Quotient(FnQuotient),
-}
-
-impl FnType {
-    pub fn constant(c: f32) -> Self {
-        FnType::Constant(Constant(c))
-    }
-
-    pub fn exp() -> Self {
-        FnType::Exp(Exp)
-    }
-
-    pub fn linear() -> Self {
-        FnType::Linear(Linear)
-    }
-
-    pub fn log() -> Self {
-        FnType::Log(Log)
-    }
-
-    pub fn power(k: f32) -> Self {
-        FnType::Power(Power { k })
-    }
-
-    pub fn sin() -> Self {
-        FnType::Sin(Sin)
-    }
-
-    pub fn product_of(lhs: FnType, rhs: FnType) -> Self {
-        FnType::Product(FnProduct::new(lhs, rhs))
-    }
-
-    pub fn chain(outer: FnType, inner: FnType) -> Self {
-        FnType::Chain(FnChain::new(inner, outer))
-    }
-
-    pub fn quotient_of(lhs: FnType, rhs: FnType) -> Self {
-        FnType::Quotient(FnQuotient::new(lhs, rhs))
-    }
-}
-
-impl std::ops::Mul for FnType {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self::product_of(self, rhs)
-    }
-}
-
-impl std::ops::Div for FnType {
-    type Output = Self;
-    fn div(self, rhs: Self) -> Self::Output {
-        Self::quotient_of(self, rhs)
-    }
-}
-
 /// `f(t) = c`
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Constant(pub f32);
@@ -260,17 +277,15 @@ impl DifferentiableFn for Log {
 
 /// Power `f(t) = t^k`.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Power {
-    pub k: f32,
-}
+pub struct Power(pub f32);
 
 impl DifferentiableFn for Power {
     fn f(&self, t: f32) -> f32 {
-        t.powf(self.k)
+        t.powf(self.0)
     }
 
     fn df_dt(&self, t: f32) -> f32 {
-        self.k * t.powf(self.k - 1.)
+        self.0 * t.powf(self.0 - 1.)
     }
 }
 
@@ -318,6 +333,8 @@ mod tests {
         let outer = FnType::sin();
 
         let inner = FnType::power(2.0);
+
+        chain!((Power(2.)) => Sin);
 
         let chain = FnChain::new(inner, outer);
 
