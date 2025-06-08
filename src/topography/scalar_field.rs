@@ -21,18 +21,18 @@ pub trait DifferentiableFn {
     fn df_dt(&self, t: f32) -> f32;
 
     /// Apply the chain rule, calculating `d/dt[f(g(t))]` where `f` is `self` and `g` is `inner`
-    fn chain<T: DifferentiableFn>(&self, t: f32, inner: T) -> f32 {
+    fn chain<T: DifferentiableFn>(&self, t: f32, inner: &T) -> f32 {
         self.df_dt(inner.f(t)) * inner.df_dt(t)
     }
 
     /// Apply the product rule, calculating `d/dt[f(t) * g(t)]`
-    fn product<T: DifferentiableFn>(&self, t: f32, g: T) -> f32 {
-        dbg!(self.f(t) * g.df_dt(t)) + dbg!(self.df_dt(t) * g.f(t))
+    fn product<T: DifferentiableFn>(&self, t: f32, g: &T) -> f32 {
+        self.f(t) * g.df_dt(t) + self.df_dt(t) * g.f(t)
     }
 
     /// Apply the quotient rule, calculating `d/dt[f(t) / g(t)]`, where `f` is `self` and `g` is
     /// `inner`
-    fn quotient<T: DifferentiableFn>(&self, t: f32, g: T) -> f32 {
+    fn quotient<T: DifferentiableFn>(&self, t: f32, g: &T) -> f32 {
         (self.df_dt(t) * g.f(t) - self.f(t) * g.df_dt(t)) / g.f(t).powi(2)
     }
 }
@@ -74,11 +74,42 @@ impl DifferentiableFn for FnChain {
     }
 
     fn df_dt(&self, t: f32) -> f32 {
-        self.outer.chain(t, *self.inner.clone())
+        let outer = self.outer.as_ref();
+        let inner = self.inner.as_ref();
+        outer.chain(t, inner)
     }
 }
 
-/// A product of [`FnType`]
+/// A quotient of two [`FnType`]
+#[derive(Debug, Clone)]
+pub struct FnQuotient {
+    /// The numerator function
+    lhs: Box<FnType>,
+    /// The denominator function
+    rhs: Box<FnType>,
+}
+
+impl FnQuotient {
+    pub fn new(lhs: FnType, rhs: FnType) -> Self {
+        Self {
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
+    }
+}
+
+impl DifferentiableFn for FnQuotient {
+    fn f(&self, t: f32) -> f32 {
+        self.lhs.f(t) / self.rhs.f(t)
+    }
+    fn df_dt(&self, t: f32) -> f32 {
+        let lhs = self.lhs.as_ref();
+        let rhs = self.rhs.as_ref();
+        lhs.quotient(t, rhs)
+    }
+}
+
+/// A product of two [`FnType`]
 #[derive(Debug, Clone)]
 pub struct FnProduct {
     lhs: Box<FnType>,
@@ -100,7 +131,9 @@ impl DifferentiableFn for FnProduct {
     }
 
     fn df_dt(&self, t: f32) -> f32 {
-        self.rhs.product(t, *self.lhs.clone())
+        let lhs = self.lhs.as_ref();
+        let rhs = self.rhs.as_ref();
+        rhs.product(t, lhs)
     }
 }
 
@@ -113,8 +146,62 @@ pub enum FnType {
     Log(Log),
     Power(Power),
     Sin(Sin),
-    Product(FnProduct),
     Chain(FnChain),
+    Product(FnProduct),
+    Quotient(FnQuotient),
+}
+
+impl FnType {
+    pub fn constant(c: f32) -> Self {
+        FnType::Constant(Constant(c))
+    }
+
+    pub fn exp() -> Self {
+        FnType::Exp(Exp)
+    }
+
+    pub fn linear() -> Self {
+        FnType::Linear(Linear)
+    }
+
+    pub fn log() -> Self {
+        FnType::Log(Log)
+    }
+
+    pub fn power(k: f32) -> Self {
+        FnType::Power(Power { k })
+    }
+
+    pub fn sin() -> Self {
+        FnType::Sin(Sin)
+    }
+
+    pub fn product_of(lhs: FnType, rhs: FnType) -> Self {
+        FnType::Product(FnProduct::new(lhs, rhs))
+    }
+
+    pub fn chain(outer: FnType, inner: FnType) -> Self {
+        FnType::Chain(FnChain::new(inner, outer))
+    }
+
+    pub fn quotient_of(lhs: FnType, rhs: FnType) -> Self {
+        FnType::Quotient(FnQuotient::new(lhs, rhs))
+    }
+}
+
+impl std::ops::Mul for FnType {
+    type Output = Self;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        Self::product_of(self, rhs)
+    }
+}
+
+impl std::ops::Div for FnType {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        Self::quotient_of(self, rhs)
+    }
 }
 
 /// `f(t) = c`
@@ -204,21 +291,131 @@ impl DifferentiableFn for Sin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::TAU;
+
+    /* --- Basic Calculus --- */
+
+    /// f  = sin(x) * x^2
+    /// f' = 2x * sin(x) - x^2 * cos(x)
     #[test]
     fn test_fn_product() {
-        let f1 = FnType::Constant(Constant(2.0));
-
-        assert_eq!(f1.f(1.0), 2.0);
-        assert_eq!(f1.df_dt(1.0), 0.0);
-
-        let f2 = FnType::Linear(Linear);
-
-        assert_eq!(f2.f(1.0), 1.0);
-        assert_eq!(f2.df_dt(1.0), 1.0);
+        let f1 = FnType::sin();
+        let f2 = FnType::power(2.);
 
         let product = FnProduct::new(f1, f2);
 
-        assert_eq!(product.f(1.0), 2.0);
-        assert_eq!(product.df_dt(1.0), 2.0);
+        let f_expect = |x: f32| x.powi(2) * x.sin();
+        let df_expect = |x: f32| 2. * x * x.sin() - x.powf(2.) * x.cos();
+
+        assert_eq!(product.f(1.), f_expect(1.));
+        assert_eq!(product.df_dt(1.), df_expect(1.));
+    }
+
+    /// f  = sin(x^2)
+    /// f' = -2x * cos(x^2)
+    #[test]
+    fn test_fn_chain() {
+        let outer = FnType::sin();
+
+        let inner = FnType::power(2.0);
+
+        let chain = FnChain::new(inner, outer);
+
+        let f_expect = |x: f32| x.powi(2).sin();
+        let df_expect = |x: f32| -2. * x * x.powi(2).cos();
+
+        assert_eq!(chain.f(1.), f_expect(1.));
+        assert_eq!(chain.df_dt(1.), df_expect(1.));
+    }
+
+    /// f = x^2 / sin(x)
+    /// f' = (2x * sin(x) - x^2 * cos(x)) / sin(x)^2
+    #[test]
+    fn test_fn_quotient() {
+        let lhs = FnType::power(2.0);
+        let rhs = FnType::sin();
+        let quotient = lhs / rhs;
+
+        let f_expect = |x: f32| x.powi(2) / x.sin();
+        let df_expect = |x: f32| (2. * x * x.sin() + x.powf(2.) * x.cos()) / x.sin().powi(2);
+
+        assert_eq!(
+            quotient.f(1.),
+            f_expect(1.),
+            "Quotient Function Incorrect: q(t) = f(t) / g(t)"
+        );
+        assert_eq!(
+            quotient.df_dt(1.),
+            df_expect(1.),
+            "Quotient Rule Derivative Failed"
+        );
+    }
+
+    /* --- Primitive Functions --- */
+    #[test]
+    fn test_constant() {
+        for i in 0..12 {
+            let c = i as f32 / TAU;
+            let constant = FnType::constant(c);
+            assert_eq!(constant.f(1.0), c);
+            assert_eq!(constant.df_dt(1.0), 0.0);
+        }
+    }
+    #[test]
+    fn test_exp() {
+        let exp = FnType::exp();
+        let f_expect = |x: f32| x.exp();
+        let df_expect = |x: f32| x.exp();
+        for i in 0..10 {
+            let t = i as f32;
+            assert_eq!(exp.f(t), f_expect(t));
+            assert_eq!(exp.df_dt(t), df_expect(t));
+        }
+    }
+
+    #[test]
+    fn test_linear() {
+        let linear = FnType::linear();
+        let f_expect = |x: f32| x;
+        let df_expect = |_: f32| 1.0;
+        for i in 0..10 {
+            let t = i as f32;
+            assert_eq!(linear.f(t), f_expect(t));
+            assert_eq!(linear.df_dt(t), df_expect(t));
+        }
+    }
+    #[test]
+    fn test_log() {
+        let log = FnType::log();
+        let f_expect = |x: f32| x.ln();
+        let df_expect = |x: f32| 1. / x;
+        for i in 1..10 {
+            let t = i as f32;
+            assert_eq!(log.f(t), f_expect(t));
+            assert_eq!(log.df_dt(t), df_expect(t));
+        }
+    }
+    #[test]
+    fn test_power() {
+        let power = FnType::power(2.0);
+        let f_expect = |x: f32| x.powi(2);
+        let df_expect = |x: f32| 2. * x;
+        for i in 0..10 {
+            let t = i as f32;
+            assert_eq!(power.f(t), f_expect(t));
+            assert_eq!(power.df_dt(t), df_expect(t));
+        }
+    }
+    #[test]
+    fn test_sin() {
+        let sin = FnType::sin();
+        let f_expect = |x: f32| x.sin();
+        let df_expect = |x: f32| -x.cos();
+
+        for i in 0..12 {
+            let t = i as f32 / TAU;
+            assert_eq!(sin.f(t), f_expect(t));
+            assert_eq!(sin.df_dt(t), df_expect(t));
+        }
     }
 }
