@@ -3,6 +3,15 @@ name = "orienteering_bevy"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "scalar-field"
+path = "src/bin/scalar_field.rs"
+
+[[bin]]
+name = "demo"
+path = "src/bin/main.rs"
+
+
 [dependencies]
 orienteering = { path = "../../" }
 

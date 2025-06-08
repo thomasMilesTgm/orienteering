@@ -1,7 +1,5 @@
 [workspace]
-members = [
-  "crates/orienteering_bevy",
-]
+members = ["crates/orienteering_bevy"]
 
 [package]
 name = "orienteering"
