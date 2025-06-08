@@ -13,6 +13,7 @@ use rand::rngs::SmallRng;
 use vector_field::*;
 
 pub mod field_operations;
+pub mod scalar_field;
 pub mod vector_field;
 pub mod vector_function;
 
