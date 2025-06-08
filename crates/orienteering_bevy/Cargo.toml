@@ -1,0 +1,10 @@
+[package]
+name = "orienteering_bevy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+orienteering = { path = "../../" }
+
+bevy = "0.16.0"
+nalgebra = "0.33.2"

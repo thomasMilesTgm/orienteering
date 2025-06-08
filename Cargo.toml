@@ -1,3 +1,8 @@
+[workspace]
+members = [
+  "crates/orienteering_bevy",
+]
+
 [package]
 name = "orienteering"
 version = "0.1.0"
@@ -24,4 +29,3 @@ serde = { version = "1.0.219", features = ["derive"], optional = true }
 strum = { version = "0.27.1", features = ["derive"] }
 
 [dev-dependencies]
-bevy = "0.16.0"
