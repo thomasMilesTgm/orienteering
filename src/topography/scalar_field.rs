@@ -55,19 +55,18 @@ impl Fn2D {
 /// Create a [`FnChain`]
 ///
 /// ```rust
-/// use topography::scalar_field::*;
+/// use orienteering::chain;
+/// use orienteering::topography::scalar_field::*;
 ///
 /// // sin(x^2)
-/// let sin_x_squared = chain!(Power(2) => Sin);
+/// let sin_x_squared = chain!(Power(2.) => Sin);
 /// ```
-#[allow(unused)]
+#[macro_export]
 macro_rules! chain {
     ($inner:expr => $outer:expr) => {
         FnType::chain($outer.into(), $inner.into())
     };
 }
-#[allow(unused)]
-pub(crate) use chain;
 
 #[enum_dispatch(DifferentiableFn)]
 #[derive(Debug, Clone)]
@@ -330,10 +329,6 @@ mod tests {
     /// f' = -2x * cos(x^2)
     #[test]
     fn test_fn_chain() {
-        let outer = FnType::sin();
-
-        let inner = FnType::power(2.0);
-
         let chain = chain!(Power(2.) => Sin);
 
         let f_expect = |x: f32| x.powi(2).sin();
