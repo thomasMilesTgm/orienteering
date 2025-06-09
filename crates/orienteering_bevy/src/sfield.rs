@@ -64,13 +64,16 @@ impl GPEField {
 
         let chunk_size = CHUNK_SIZE as i32;
 
-        let r0 = id.x * chunk_size;
-        let r1 = id.y * chunk_size + chunk_size;
+        let i0 = id.x * chunk_size;
+        let i1 = id.x * chunk_size + chunk_size;
 
-        let field_stength = (r0..r1)
+        let j0 = id.y * chunk_size;
+        let j1 = id.y * chunk_size + chunk_size;
+
+        let field_stength = (i0..i1)
             .flat_map(|i| {
                 let x = 10. * i as f32 / CHUNK_SIZE as f32;
-                (r0..r1).map(move |j| {
+                (j0..j1).map(move |j| {
                     let y = 10. * j as f32 / CHUNK_SIZE as f32;
                     self.strength(x, y)
                 })
