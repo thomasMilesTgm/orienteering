@@ -1,7 +1,7 @@
 //! Using scalar fields guarantees the resulting vector field is conservative, guaranteeing that
 //! the line integral of a point to itself is zero, which is a requirement for closed contours.
 
-use crate::calculus::*;
+use crate::{calculus::*, chain};
 use enum_dispatch::enum_dispatch;
 use nalgebra::{Point2, Vector2};
 
@@ -14,6 +14,88 @@ pub trait ScalarField {
     fn gradient_at(&self, xy: Point2<f32>) -> Vector2<f32>;
 }
 
+impl<T> ScalarField for T
+where
+    T: std::ops::Deref<Target = FnXY>,
+{
+    fn phi(&self, xy: Point2<f32>) -> f32 {
+        self.deref().phi(xy)
+    }
+
+    fn gradient_at(&self, xy: Point2<f32>) -> Vector2<f32> {
+        self.deref().gradient_at(xy)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SummedPotential {
+    pub potentials: Vec<WeightedPotential>,
+}
+
+impl SummedPotential {
+    pub fn new(potentials: Vec<WeightedPotential>) -> Self {
+        Self { potentials }
+    }
+}
+
+impl ScalarField for SummedPotential {
+    fn phi(&self, xy: Point2<f32>) -> f32 {
+        self.potentials.iter().map(|p| p.phi(xy)).sum()
+    }
+
+    fn gradient_at(&self, xy: Point2<f32>) -> Vector2<f32> {
+        self.potentials.iter().map(|p| p.gradient_at(xy)).sum()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WeightedPotential {
+    pub weight: f32,
+    pub potential: Potential,
+}
+impl WeightedPotential {
+    pub fn new(potential: Potential, weight: f32) -> Self {
+        Self { weight, potential }
+    }
+}
+
+impl ScalarField for WeightedPotential {
+    fn phi(&self, xy: Point2<f32>) -> f32 {
+        self.weight * self.potential.phi(xy)
+    }
+    fn gradient_at(&self, xy: Point2<f32>) -> Vector2<f32> {
+        self.weight * self.potential.gradient_at(xy)
+    }
+}
+
+#[derive(Debug, Clone)]
+#[enum_dispatch(ScalarField)]
+pub enum Potential {
+    Circular(CircularPotential),
+    Constant(ConstantPotential),
+    Saddle(SaddlePotential),
+    Oscillating(OscillatingPotential),
+    Custom(FnXY),
+}
+
+impl Potential {
+    pub fn constant(value: f32) -> Self {
+        ConstantPotential(value).into()
+    }
+    pub fn circular() -> Self {
+        CircularPotential::default().into()
+    }
+    pub fn saddle() -> Self {
+        SaddlePotential::default().into()
+    }
+    pub fn oscillating(omega_x: f32, omega_y: f32) -> Self {
+        OscillatingPotential::new(omega_x, omega_y).into()
+    }
+    pub fn custom(f: FnXY) -> Self {
+        f.into()
+    }
+}
+
 #[derive(Debug, Clone, derive_more::Deref)]
 pub struct CircularPotential(FnXY);
 
@@ -21,7 +103,44 @@ impl Default for CircularPotential {
     fn default() -> Self {
         let fx = FnType::power(2.) * FnType::constant(-1.);
         let fy = FnType::power(2.) * FnType::constant(-1.);
-        let f = SumOfFnType::new(fx + FnType::constant(10.), fy).into();
+        let f = SumOfFnType::new(fx, fy).into();
+        Self(f)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstantPotential(pub f32);
+
+impl ScalarField for ConstantPotential {
+    fn phi(&self, _xy: Point2<f32>) -> f32 {
+        self.0
+    }
+    fn gradient_at(&self, _xy: Point2<f32>) -> Vector2<f32> {
+        Vector2::new(0., 0.)
+    }
+}
+
+#[derive(Debug, Clone, derive_more::Deref)]
+pub struct OscillatingPotential(FnXY);
+
+impl Default for OscillatingPotential {
+    fn default() -> Self {
+        let fx = FnType::sin();
+        let fy = FnType::cos();
+        let f = SumOfFnType::new(fx, fy).into();
+        Self(f)
+    }
+}
+
+impl OscillatingPotential {
+    pub fn new(omega_x: f32, omega_y: f32) -> Self {
+        let ix = FnType::constant(omega_x) * FnType::linear();
+        let fx = chain!(ix => FnType::sin());
+
+        let iy = FnType::constant(omega_y) * FnType::linear();
+        let fy = chain!(iy => FnType::cos());
+
+        let f = SumOfFnType::new(fx, fy).into();
         Self(f)
     }
 }

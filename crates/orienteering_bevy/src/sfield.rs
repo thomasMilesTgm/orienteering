@@ -35,9 +35,23 @@ impl Plugin for WorldSetupPlugin {
 }
 
 /// Gravitational potential field for the world map
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone)]
 struct GPEField {
-    f: CircularPotential,
+    f: SummedPotential,
+}
+
+impl Default for GPEField {
+    fn default() -> Self {
+        let f = SummedPotential {
+            potentials: vec![
+                WeightedPotential::new(Potential::constant(50.), 1.),
+                WeightedPotential::new(Potential::circular(), 1.),
+                WeightedPotential::new(Potential::saddle(), 0.5),
+                WeightedPotential::new(Potential::oscillating(1., 1.), 2.),
+            ],
+        };
+        Self { f }
+    }
 }
 
 impl GPEField {
@@ -70,14 +84,13 @@ impl GPEField {
         dbg!(min, max);
 
         const GREEN_HUE: f32 = 120.;
-        const CYAN_HUE: f32 = 180.;
         const BLUE_HUE: f32 = 240.;
         let min_depth = (-min).max(0.);
         let max_height = max.max(0.);
 
         let hue = |z: f32| {
-            if z == 0. {
-                CYAN_HUE
+            if (0. ..1.).contains(&z) {
+                25.
             } else if z.is_sign_negative() {
                 BLUE_HUE
             } else {
@@ -85,8 +98,8 @@ impl GPEField {
             }
         };
         let saturation = |z: f32| {
-            if z == 0. {
-                1.
+            if (0. ..1.).contains(&z) {
+                0.35
             } else if z.is_sign_negative() {
                 0.8
             } else {
@@ -94,8 +107,8 @@ impl GPEField {
             }
         };
         let brightness = |z: f32| {
-            let b = if z == 0. {
-                0.2
+            let b = if (z - 0.).abs() < 1. {
+                0.8
             } else if z.is_sign_negative() {
                 let range = if max_height.is_sign_negative() {
                     max_height + min_depth
