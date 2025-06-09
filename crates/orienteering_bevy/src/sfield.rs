@@ -7,7 +7,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureFormat},
 };
 use nalgebra::Point2;
-use orienteering::topography::scalar_field::*;
+use orienteering::{calculus::FnType, topography::scalar_field::*};
 
 /// Size of a map chunk, Meters
 const CHUNK_SIZE: u32 = 1000;
@@ -46,8 +46,9 @@ impl Default for GPEField {
             potentials: vec![
                 WeightedPotential::new(Potential::constant(50.), 1.),
                 WeightedPotential::new(Potential::circular(), 1.),
-                WeightedPotential::new(Potential::saddle(), 0.5),
-                WeightedPotential::new(Potential::oscillating(1., 1.), 2.),
+                WeightedPotential::new(Potential::saddle(), 0.7),
+                WeightedPotential::new(Potential::oscillating(1., 0.5), 3.),
+                WeightedPotential::new(Potential::oscillating(3., 2.), 0.1),
             ],
         };
         Self { f }
