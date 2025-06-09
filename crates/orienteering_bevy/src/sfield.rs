@@ -7,7 +7,7 @@ use bevy::{
     render::render_resource::{Extent3d, TextureFormat},
 };
 use nalgebra::Point2;
-use orienteering::{calculus::FnType, topography::scalar_field::*};
+use orienteering::topography::scalar_field::*;
 
 /// Size of a map chunk, Meters
 const CHUNK_SIZE: u32 = 1000;
@@ -42,6 +42,7 @@ struct GPEField {
 
 impl Default for GPEField {
     fn default() -> Self {
+        // TODO: Make fields decay to zero outside a specified region
         let f = SummedPotential {
             potentials: vec![
                 WeightedPotential::new(Potential::constant(50.), 1.),
