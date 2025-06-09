@@ -26,6 +26,18 @@ impl Default for CircularPotential {
     }
 }
 
+#[derive(Debug, Clone, derive_more::Deref)]
+pub struct SaddlePotential(FnXY);
+
+impl Default for SaddlePotential {
+    fn default() -> Self {
+        let fx = FnType::power(2.) * FnType::constant(1.);
+        let fy = FnType::power(2.) * FnType::constant(-1.);
+        let f = SumOfFnType::new(fx, fy).into();
+        Self(f)
+    }
+}
+
 #[enum_dispatch(ScalarField)]
 #[derive(Debug, Clone)]
 pub enum FnXY {
@@ -47,6 +59,15 @@ impl ScalarField for SumOfFnXY {
     }
     fn gradient_at(&self, xy: Point2<f32>) -> Vector2<f32> {
         self.lhs.gradient_at(xy) + self.rhs.gradient_at(xy)
+    }
+}
+
+impl SumOfFnXY {
+    pub fn new(lhs: FnXY, rhs: FnXY) -> Self {
+        Self {
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
     }
 }
 
