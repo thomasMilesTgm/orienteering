@@ -4,12 +4,13 @@
 //! map, given this we can use it's gradient vector field to generate contours on the world map.
 
 use bevy::prelude::*;
-use orienteering_bevy::camera::CameraPlugin;
+use orienteering_bevy::{camera::CameraPlugin, sfield::ScalarFieldPlugin};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(CameraPlugin)
+        .add_plugins(ScalarFieldPlugin)
         //..
         .run();
 }

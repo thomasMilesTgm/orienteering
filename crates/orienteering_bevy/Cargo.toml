@@ -13,7 +13,8 @@ path = "src/bin/main.rs"
 
 
 [dependencies]
-orienteering = { path = "../../" }
-
-bevy = "0.16.0"
+bevy = { version = "0.16.0", features = ["dynamic_linking"] }
+log = "0.4.27"
 nalgebra = "0.33.2"
+
+orienteering = { path = "../../" }

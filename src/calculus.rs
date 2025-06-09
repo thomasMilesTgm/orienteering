@@ -10,8 +10,6 @@ pub trait DifferentiableFn {
     /// Calculates the derivative of `x(t)` with respect to `t`, i.e., `dx/dt`
     fn df_dt(&self, t: f32) -> f32;
 
-    fn t_at(&self, f: f32) -> Option<f32>;
-
     /// Apply the chain rule, calculating `d/dt[f(g(t))]` where `f` is `self` and `g` is `inner`
     fn chain<T: DifferentiableFn>(&self, t: f32, inner: &T) -> f32 {
         self.df_dt(inner.f(t)) * inner.df_dt(t)
@@ -42,6 +40,7 @@ pub enum FnType {
     Chain(FnChain),
     Product(FnProduct),
     Quotient(FnQuotient),
+    Sum(FnSum),
 }
 
 impl FnType {
@@ -101,6 +100,13 @@ impl std::ops::Div for FnType {
     }
 }
 
+impl std::ops::Add for FnType {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self::Output {
+        FnType::Sum(FnSum::new(self, rhs))
+    }
+}
+
 /// A product of [`FnType`]
 #[derive(Debug, Clone)]
 pub struct FnChain {
@@ -126,12 +132,6 @@ impl DifferentiableFn for FnChain {
         let outer = self.outer.as_ref();
         let inner = self.inner.as_ref();
         outer.chain(t, inner)
-    }
-
-    fn t_at(&self, f: f32) -> Option<f32> {
-        let to = self.outer.t_at(f)?;
-        let ti = self.inner.t_at(to)?;
-        Some(ti)
     }
 }
 
@@ -162,9 +162,29 @@ impl DifferentiableFn for FnQuotient {
         let rhs = self.rhs.as_ref();
         lhs.quotient(t, rhs)
     }
-    fn t_at(&self, _f: f32) -> Option<f32> {
-        eprintln!("t_at for FnQuotient needs numerical solving?");
-        None
+}
+
+#[derive(Debug, Clone)]
+pub struct FnSum {
+    lhs: Box<FnType>,
+    rhs: Box<FnType>,
+}
+
+impl DifferentiableFn for FnSum {
+    fn f(&self, t: f32) -> f32 {
+        self.lhs.f(t) + self.rhs.f(t)
+    }
+    fn df_dt(&self, t: f32) -> f32 {
+        self.lhs.df_dt(t) + self.rhs.df_dt(t)
+    }
+}
+
+impl FnSum {
+    pub fn new(lhs: FnType, rhs: FnType) -> Self {
+        Self {
+            lhs: Box::new(lhs),
+            rhs: Box::new(rhs),
+        }
     }
 }
 
@@ -194,10 +214,6 @@ impl DifferentiableFn for FnProduct {
         let rhs = self.rhs.as_ref();
         rhs.product(t, lhs)
     }
-    fn t_at(&self, _f: f32) -> Option<f32> {
-        eprintln!("t_at for FnQuotient needs numerical solving?");
-        None
-    }
 }
 
 /// `f(t) = c`
@@ -212,9 +228,6 @@ impl DifferentiableFn for Constant {
     fn df_dt(&self, _: f32) -> f32 {
         0.
     }
-    fn t_at(&self, _: f32) -> Option<f32> {
-        None
-    }
 }
 
 /// `f(t) = e^t`
@@ -228,9 +241,6 @@ impl DifferentiableFn for Exp {
     fn df_dt(&self, t: f32) -> f32 {
         t.exp()
     }
-    fn t_at(&self, f: f32) -> Option<f32> {
-        Some(f.ln())
-    }
 }
 
 /// `f(t) = c * t`
@@ -243,9 +253,6 @@ impl DifferentiableFn for Linear {
     }
     fn df_dt(&self, _: f32) -> f32 {
         1.
-    }
-    fn t_at(&self, f: f32) -> Option<f32> {
-        Some(f)
     }
 }
 
@@ -261,9 +268,6 @@ impl DifferentiableFn for Log {
     fn df_dt(&self, t: f32) -> f32 {
         1. / t
     }
-    fn t_at(&self, f: f32) -> Option<f32> {
-        Some(f.exp())
-    }
 }
 
 /// Power `f(t) = t^k`.
@@ -277,9 +281,6 @@ impl DifferentiableFn for Power {
 
     fn df_dt(&self, t: f32) -> f32 {
         self.0 * t.powf(self.0 - 1.)
-    }
-    fn t_at(&self, f: f32) -> Option<f32> {
-        Some(f.powf(-self.0))
     }
 }
 
@@ -295,9 +296,6 @@ impl DifferentiableFn for Sin {
     fn df_dt(&self, t: f32) -> f32 {
         -t.cos()
     }
-    fn t_at(&self, f: f32) -> Option<f32> {
-        Some(f.asin())
-    }
 }
 
 /// `f(t) = cos(t)`
@@ -311,9 +309,6 @@ impl DifferentiableFn for Cos {
 
     fn df_dt(&self, t: f32) -> f32 {
         t.sin()
-    }
-    fn t_at(&self, f: f32) -> Option<f32> {
-        Some(f.acos())
     }
 }
 

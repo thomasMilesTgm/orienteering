@@ -21,7 +21,7 @@ impl Default for CircularPotential {
     fn default() -> Self {
         let fx = FnType::power(2.) * FnType::constant(-1.);
         let fy = FnType::power(2.) * FnType::constant(-1.);
-        let f = SumOfFnType::new(fx, fy).into();
+        let f = SumOfFnType::new(fx + FnType::constant(10.), fy).into();
         Self(f)
     }
 }
