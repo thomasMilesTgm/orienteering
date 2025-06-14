@@ -53,6 +53,7 @@ pub struct WeightedPotential {
     pub weight: f32,
     pub potential: Potential,
 }
+
 impl WeightedPotential {
     pub fn new(potential: Potential, weight: f32) -> Self {
         Self { weight, potential }
@@ -93,6 +94,26 @@ impl Potential {
     }
     pub fn custom(f: FnXY) -> Self {
         f.into()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct LocalizedPotential {
+    pub min: Point2<f32>,
+    pub max: Point2<f32>,
+    f: FnXY,
+}
+
+impl std::ops::Deref for LocalizedPotential {
+    type Target = FnXY;
+    fn deref(&self) -> &Self::Target {
+        &self.f
+    }
+}
+
+impl LocalizedPotential {
+    pub fn new(min: Point2<f32>, max: Point2<f32>) -> Self {
+        todo!()
     }
 }
 

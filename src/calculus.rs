@@ -30,6 +30,7 @@ pub trait DifferentiableFn {
 #[enum_dispatch(DifferentiableFn)]
 #[derive(Debug, Clone)]
 pub enum FnType {
+    Step(StepFn),
     Constant(Constant),
     Exp(Exp),
     Linear(Linear),
@@ -213,6 +214,19 @@ impl DifferentiableFn for FnProduct {
         let lhs = self.lhs.as_ref();
         let rhs = self.rhs.as_ref();
         rhs.product(t, lhs)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StepFn;
+
+impl DifferentiableFn for StepFn {
+    fn f(&self, t: f32) -> f32 {
+        0.5 + 0.5 * t.tanh()
+    }
+
+    fn df_dt(&self, t: f32) -> f32 {
+        0.5 / t.cosh().powi(2)
     }
 }
 
