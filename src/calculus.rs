@@ -131,10 +131,10 @@ impl std::ops::Mul<f32> for FnType {
     }
 }
 
-impl std::ops::Mul for FnType {
+impl<T: Into<Self>> std::ops::Mul<T> for FnType {
     type Output = Self;
 
-    fn mul(self, rhs: Self) -> Self::Output {
+    fn mul(self, rhs: T) -> Self::Output {
         Self::product_of(self, rhs)
     }
 }
@@ -146,9 +146,9 @@ impl std::ops::Div<f32> for FnType {
     }
 }
 
-impl std::ops::Div for FnType {
+impl<T: Into<Self>> std::ops::Div<T> for FnType {
     type Output = Self;
-    fn div(self, rhs: Self) -> Self::Output {
+    fn div(self, rhs: T) -> Self::Output {
         Self::quotient_of(self, rhs)
     }
 }
@@ -160,9 +160,9 @@ impl std::ops::Add<f32> for FnType {
     }
 }
 
-impl std::ops::Add for FnType {
+impl<T: Into<Self>> std::ops::Add<T> for FnType {
     type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
+    fn add(self, rhs: T) -> Self::Output {
         FnType::Sum(FnSum::new(self, rhs))
     }
 }
@@ -174,9 +174,9 @@ impl std::ops::Sub<f32> for FnType {
     }
 }
 
-impl std::ops::Sub for FnType {
+impl<T: Into<Self>> std::ops::Sub<T> for FnType {
     type Output = Self;
-    fn sub(self, rhs: Self) -> Self::Output {
+    fn sub(self, rhs: T) -> Self::Output {
         FnType::subtract(self, rhs)
     }
 }
