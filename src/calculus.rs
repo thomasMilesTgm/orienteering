@@ -1,7 +1,5 @@
 //! Basic calculus utilities for composing differential functions
 
-use std::f32::consts::E;
-
 use enum_dispatch::enum_dispatch;
 
 #[enum_dispatch]
@@ -384,9 +382,6 @@ impl std::fmt::Display for StepRegion {
 
 impl StepRegion {
     pub fn new(start: f32, end: f32, k: f32) -> Self {
-        // if k == 1, at start/end the value will < 1%, greater values will increase the drop off
-        // rate, which may be useful for very small regions.
-        let k = k * E / (end - start);
         let t_minus_start = FnSub::new(Constant(start), Linear); // (start - t)
         let k_x_t_minus_start = FnProduct::new(Constant(k), t_minus_start); // k * (start - t)
         let step_up = FnChain::new(k_x_t_minus_start, Tanh); // tanh(k(start - t))
@@ -728,10 +723,10 @@ mod tests {
             println!("f({t}) = {f}");
         }
 
-        approx::assert_relative_eq!(0., step.f(START - 1.), epsilon = 1e-2);
-        approx::assert_relative_eq!(1., step.f(START + 1.), epsilon = 1e-2);
-        approx::assert_relative_eq!(1., step.f((END - START) / 2.), epsilon = 1e-2);
-        approx::assert_relative_eq!(1., step.f(END - 1.), epsilon = 1e-2);
-        approx::assert_relative_eq!(0., step.f(END + 1.), epsilon = 1e-2);
+        approx::assert_relative_eq!(0., step.f(START - 1.));
+        approx::assert_relative_eq!(1., step.f(START + 1.));
+        approx::assert_relative_eq!(1., step.f((END - START) / 2.));
+        approx::assert_relative_eq!(1., step.f(END - 1.));
+        approx::assert_relative_eq!(0., step.f(END + 1.));
     }
 }
