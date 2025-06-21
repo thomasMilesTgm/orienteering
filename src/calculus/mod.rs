@@ -1,5 +1,7 @@
 //! Basic calculus utilities for composing differential functions
 
+pub mod primitives;
+
 use enum_dispatch::enum_dispatch;
 
 #[enum_dispatch]
