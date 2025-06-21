@@ -3,7 +3,9 @@
 use super::scalar_field::*;
 use nalgebra::{Point2, Vector2};
 
-pub struct World {}
+pub struct World {
+    pub chunks: Vec<Vec<Chunk>>,
+}
 
 pub struct Chunk {
     localized: LocalizedPotential,
