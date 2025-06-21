@@ -16,6 +16,7 @@ pub mod field_operations;
 pub mod scalar_field;
 pub mod vector_field;
 pub mod vector_function;
+pub mod world;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
