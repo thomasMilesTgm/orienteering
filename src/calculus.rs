@@ -30,7 +30,7 @@ pub trait DifferentiableFn {
 #[enum_dispatch(DifferentiableFn)]
 #[derive(Debug, Clone)]
 pub enum FnType {
-    Step(StepFn),
+    Tanh(Tanh),
     StepRegion(StepRegion),
     Constant(Constant),
     Exp(Exp),
@@ -48,7 +48,7 @@ pub enum FnType {
 impl std::fmt::Display for FnType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FnType::Step(fn_step) => write!(f, "{}", fn_step),
+            FnType::Tanh(fn_step) => write!(f, "{}", fn_step),
             FnType::StepRegion(fn_region) => write!(f, "{}", fn_region),
             FnType::Constant(c) => write!(f, "{}", c),
             FnType::Exp(exp) => write!(f, "{}", exp),
@@ -114,12 +114,20 @@ impl FnType {
         FnType::Sub(FnSub::new(lhs, rhs))
     }
 
-    pub fn step() -> Self {
-        FnType::Step(StepFn)
+    pub fn tanh() -> Self {
+        FnType::Tanh(Tanh)
     }
 
     pub fn step_region(start: f32, end: f32, k: f32) -> Self {
         FnType::StepRegion(StepRegion::new(start, end, k))
+    }
+}
+
+impl std::ops::Mul<f32> for FnType {
+    type Output = Self;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self::product_of(self, Constant(rhs))
     }
 }
 
@@ -131,6 +139,13 @@ impl std::ops::Mul for FnType {
     }
 }
 
+impl std::ops::Div<f32> for FnType {
+    type Output = Self;
+    fn div(self, rhs: f32) -> Self::Output {
+        Self::quotient_of(self, Constant(rhs))
+    }
+}
+
 impl std::ops::Div for FnType {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
@@ -138,10 +153,31 @@ impl std::ops::Div for FnType {
     }
 }
 
+impl std::ops::Add<f32> for FnType {
+    type Output = Self;
+    fn add(self, rhs: f32) -> Self::Output {
+        FnType::Sum(FnSum::new(self, Constant(rhs)))
+    }
+}
+
 impl std::ops::Add for FnType {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
         FnType::Sum(FnSum::new(self, rhs))
+    }
+}
+
+impl std::ops::Sub<f32> for FnType {
+    type Output = Self;
+    fn sub(self, rhs: f32) -> Self::Output {
+        FnType::subtract(self, Constant(rhs))
+    }
+}
+
+impl std::ops::Sub for FnType {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self::Output {
+        FnType::subtract(self, rhs)
     }
 }
 
@@ -312,21 +348,21 @@ impl DifferentiableFn for FnProduct {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct StepFn;
+pub struct Tanh;
 
-impl std::fmt::Display for StepFn {
+impl std::fmt::Display for Tanh {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(0.5 + 0.5 * tanh(%))")
+        write!(f, "tanh(%)")
     }
 }
 
-impl DifferentiableFn for StepFn {
+impl DifferentiableFn for Tanh {
     fn f(&self, t: f32) -> f32 {
-        0.5 + 0.5 * t.tanh()
+        t.tanh()
     }
 
     fn df_dt(&self, t: f32) -> f32 {
-        0.5 / t.cosh().powi(2)
+        1. / t.cosh().powi(2)
     }
 }
 
@@ -348,13 +384,13 @@ impl StepRegion {
     pub fn new(start: f32, end: f32, k: f32) -> Self {
         let t_minus_start = FnSub::new(Constant(start), Linear); // (start - t)
         let k_x_t_minus_start = FnProduct::new(Constant(k), t_minus_start); // k * (start - t)
-        let step_up = FnChain::new(k_x_t_minus_start, StepFn); // 0.5 + 0.5 * tanh(k(start - t))
+        let step_up = FnChain::new(k_x_t_minus_start, Tanh); // tanh(k(start - t))
 
         let t_minus_end = FnSub::new(Constant(end), Linear); // (end - t)
         let k_x_t_minus_end = FnProduct::new(Constant(k), t_minus_end); // k * (end - t)
-        let step_down = FnChain::new(k_x_t_minus_end, StepFn); // 0.5 + 0.5 * tanh(k(end - t))
+        let step_down = FnChain::new(k_x_t_minus_end, Tanh); // tanh(k(end - t))
 
-        let f = FnType::subtract(step_down, step_up);
+        let f = FnType::subtract(step_down, step_up) * 0.5; // 0.5 * (tanh(k(end - t)) - tanh(k(start - t)))
 
         Self {
             start,
@@ -657,7 +693,7 @@ mod tests {
 
     #[test]
     fn test_step() {
-        let step = FnType::step();
+        let step = FnType::tanh() * FnType::constant(0.5) + 0.5;
 
         approx::assert_relative_eq!(step.f(-1000.), 0.);
         approx::assert_relative_eq!(step.f(-100.), 0.);
@@ -678,7 +714,6 @@ mod tests {
 
         const N: usize = 100;
         let ext = END - START;
-        let dt = ext / N as f32;
         let t0 = START - ext / 2.;
         let t1 = END + ext / 2.;
         let dt = (t1 - t0) / N as f32;
