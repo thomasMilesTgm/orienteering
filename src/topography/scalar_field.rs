@@ -76,6 +76,7 @@ pub enum Potential {
     Constant(ConstantPotential),
     Saddle(SaddlePotential),
     Oscillating(OscillatingPotential),
+    Localized(LocalizedPotential),
     Custom(FnXY),
 }
 
@@ -92,6 +93,9 @@ impl Potential {
     pub fn oscillating(omega_x: f32, omega_y: f32) -> Self {
         OscillatingPotential::new(omega_x, omega_y).into()
     }
+    pub fn localized(min: Point2<f32>, max: Point2<f32>, ramp: f32) -> Self {
+        LocalizedPotential::new(min, max, ramp).into()
+    }
     pub fn custom(f: FnXY) -> Self {
         f.into()
     }
@@ -101,7 +105,7 @@ impl Potential {
 pub struct LocalizedPotential {
     pub min: Point2<f32>,
     pub max: Point2<f32>,
-    f: FnXY,
+    f: Box<FnXY>,
 }
 
 impl std::ops::Deref for LocalizedPotential {
@@ -112,8 +116,11 @@ impl std::ops::Deref for LocalizedPotential {
 }
 
 impl LocalizedPotential {
-    pub fn new(min: Point2<f32>, max: Point2<f32>) -> Self {
-        todo!()
+    pub fn new(min: Point2<f32>, max: Point2<f32>, ramp: f32) -> Self {
+        let f_x = FnType::step_region(min.x, max.x, ramp);
+        let f_y = FnType::step_region(min.y, max.y, ramp);
+        let f = Box::new(FnXY::sum_of_fn_type(f_x, f_y));
+        Self { min, max, f }
     }
 }
 
@@ -185,6 +192,21 @@ pub enum FnXY {
     SumOfFnType(SumOfFnType),
     ProductOfFnXY(ProductOfFnXY),
     SumOfFnXY(SumOfFnXY),
+}
+
+impl FnXY {
+    pub fn sum_of(lhs: FnXY, rhs: FnXY) -> Self {
+        SumOfFnXY::new(lhs, rhs).into()
+    }
+    pub fn product_of(lhs: FnXY, rhs: FnXY) -> Self {
+        ProductOfFnXY::new(lhs, rhs).into()
+    }
+    pub fn product_of_fn_type(lhs: FnType, rhs: FnType) -> Self {
+        ProductOfFnType::new(lhs, rhs).into()
+    }
+    pub fn sum_of_fn_type(lhs: FnType, rhs: FnType) -> Self {
+        SumOfFnType::new(lhs, rhs).into()
+    }
 }
 
 #[derive(Debug, Clone)]
