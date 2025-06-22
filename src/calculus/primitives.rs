@@ -1,20 +1,39 @@
 //! Building blocks of equations.
 
+use enum_dispatch::enum_dispatch;
+
 pub type Number = f64;
 
 pub mod prelude {
-    pub use super::FunctionT;
     pub use super::helpers::*;
+    pub use super::{Differentiate, FnOfT, FunctionT, Integrate};
 }
 
 pub mod consts {
     pub use std::f64::consts::E;
 }
 
+#[enum_dispatch]
+pub trait Integrate {
+    fn integral(&self) -> FunctionT;
+}
+
+#[enum_dispatch]
+pub trait FnOfT {
+    fn f(&self, t: Number) -> Number;
+}
+
+#[enum_dispatch]
+pub trait Differentiate {
+    fn df_dt(&self) -> FunctionT;
+}
+
 /// A function of a single variable `t`.
-#[derive(Debug, Clone, derive_more::From)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[enum_dispatch(FnOfT, Differentiate, Integrate)]
 pub enum FunctionT {
+    Undefined(math::Undefined),
     /* Ops */
     Chain(operator::Chain),
     Plus(operator::Plus),
@@ -45,6 +64,7 @@ pub enum FunctionT {
     ArcCosh(hyperbolic::ArcCosh),
     ArcTanh(hyperbolic::ArcTanh),
 }
+
 impl FunctionT {
     pub fn sqrt(self) -> Self {
         use helpers::*;
@@ -53,6 +73,14 @@ impl FunctionT {
 
     pub fn abs(self) -> Self {
         self.pow(2.).sqrt() // sqrt(f(t)^2)
+    }
+    pub fn ln(self) -> Self {
+        use helpers::*;
+        chain(self, ln())
+    }
+    pub fn exp(self) -> Self {
+        use helpers::*;
+        chain(self, exp())
     }
     pub fn pow(self, exponent: Number) -> Self {
         use helpers::*;
@@ -182,8 +210,9 @@ impl<T: Into<FunctionT>> std::ops::Div<T> for FunctionT {
 }
 
 pub mod operator {
-
-    use super::FunctionT;
+    use super::math::Undefined;
+    use super::prelude::*;
+    use super::{FunctionT, Number};
 
     /// Use the
     #[derive(Debug, Clone)]
@@ -200,12 +229,43 @@ pub mod operator {
             }
         }
     }
+    impl FnOfT for Chain {
+        fn f(&self, t: Number) -> Number {
+            self.outer.f(self.inner.f(t))
+        }
+    }
+    impl Integrate for Chain {
+        fn integral(&self) -> FunctionT {
+            // TODO
+            Undefined.into()
+        }
+    }
+    impl Differentiate for Chain {
+        fn df_dt(&self) -> FunctionT {
+            chain((*self.inner).clone(), self.outer.df_dt()) * self.inner.df_dt()
+        }
+    }
 
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Plus {
         lhs: Box<FunctionT>,
         rhs: Box<FunctionT>,
+    }
+    impl FnOfT for Plus {
+        fn f(&self, t: Number) -> Number {
+            self.lhs.f(t) + self.rhs.f(t)
+        }
+    }
+    impl Differentiate for Plus {
+        fn df_dt(&self) -> FunctionT {
+            self.lhs.df_dt() + self.rhs.df_dt()
+        }
+    }
+    impl Integrate for Plus {
+        fn integral(&self) -> FunctionT {
+            self.lhs.integral() + self.rhs.integral()
+        }
     }
     impl Plus {
         pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(lhs: L, rhs: R) -> Self {
@@ -222,6 +282,21 @@ pub mod operator {
         lhs: Box<FunctionT>,
         rhs: Box<FunctionT>,
     }
+    impl FnOfT for Minus {
+        fn f(&self, t: Number) -> Number {
+            self.lhs.f(t) - self.rhs.f(t)
+        }
+    }
+    impl Differentiate for Minus {
+        fn df_dt(&self) -> FunctionT {
+            self.lhs.df_dt() - self.rhs.df_dt()
+        }
+    }
+    impl Integrate for Minus {
+        fn integral(&self) -> FunctionT {
+            self.lhs.integral() - self.rhs.integral()
+        }
+    }
     impl Minus {
         pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(lhs: L, rhs: R) -> Self {
             Self {
@@ -236,6 +311,22 @@ pub mod operator {
     pub struct Times {
         lhs: Box<FunctionT>,
         rhs: Box<FunctionT>,
+    }
+    impl FnOfT for Times {
+        fn f(&self, t: Number) -> Number {
+            self.lhs.f(t) * self.rhs.f(t)
+        }
+    }
+    impl Integrate for Times {
+        fn integral(&self) -> FunctionT {
+            // TODO
+            Undefined.into()
+        }
+    }
+    impl Differentiate for Times {
+        fn df_dt(&self) -> FunctionT {
+            self.lhs.df_dt() * (*self.rhs).clone() + self.rhs.df_dt() * (*self.lhs).clone()
+        }
     }
     impl Times {
         pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(lhs: L, rhs: R) -> Self {
@@ -252,6 +343,29 @@ pub mod operator {
         lhs: Box<FunctionT>,
         rhs: Box<FunctionT>,
     }
+    impl FnOfT for Divide {
+        fn f(&self, t: Number) -> Number {
+            self.lhs.f(t) / self.rhs.f(t)
+        }
+    }
+    impl Integrate for Divide {
+        fn integral(&self) -> FunctionT {
+            // Integration of division is not straightforward and typically requires special techniques.
+            // This is a placeholder; actual implementation would depend on the specific functions involved.
+            Undefined.into()
+        }
+    }
+    impl Differentiate for Divide {
+        fn df_dt(&self) -> FunctionT {
+            let f = (*self.lhs).clone();
+            let g = (*self.rhs).clone();
+            let df_dt = self.lhs.df_dt();
+            let dg_dt = self.rhs.df_dt();
+
+            // quotient rule: (f/g)' = (f' * g - f * g') / g^2
+            (df_dt * g.clone() - f * dg_dt) / g.pow(2.)
+        }
+    }
     impl Divide {
         pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(lhs: L, rhs: R) -> Self {
             Self {
@@ -263,9 +377,28 @@ pub mod operator {
 }
 
 pub mod math {
-    use super::helpers::*;
+    use super::prelude::*;
     use super::{FunctionT, Number};
-    use crate::calculus::traits::*;
+
+    #[derive(Debug, Clone, Copy)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Undefined;
+
+    impl FnOfT for Undefined {
+        fn f(&self, _: Number) -> Number {
+            f64::NAN
+        }
+    }
+    impl Integrate for Undefined {
+        fn integral(&self) -> FunctionT {
+            FunctionT::Undefined(Undefined)
+        }
+    }
+    impl Differentiate for Undefined {
+        fn df_dt(&self) -> FunctionT {
+            FunctionT::Undefined(Undefined)
+        }
+    }
 
     /// f(t) = [`Constant::0`]
     #[derive(Debug, Clone, Copy)]
@@ -279,7 +412,7 @@ pub mod math {
     }
 
     impl Integrate for Constant {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             linear() * *self
         }
     }
@@ -302,7 +435,7 @@ pub mod math {
     }
 
     impl Integrate for Linear {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             constant(0.5) * power(2.)
         }
     }
@@ -327,7 +460,7 @@ pub mod math {
     }
 
     impl Integrate for Power {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             if self.exponent == -1.0 {
                 ln() * linear() - linear()
             } else {
@@ -360,7 +493,7 @@ pub mod math {
     }
 
     impl Integrate for Exponential {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             if self.base == super::consts::E {
                 exp()
             } else {
@@ -392,7 +525,7 @@ pub mod math {
     }
 
     impl Integrate for Logarithm {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             if self.base == super::consts::E {
                 ln() * linear() - linear()
             } else {
@@ -414,8 +547,7 @@ pub mod math {
 pub mod trigonometric {
     use super::FunctionT;
     use super::Number;
-    use super::helpers::*;
-    use crate::calculus::traits::*;
+    use super::prelude::*;
 
     /// f(t) = sin(t)
     #[derive(Debug, Clone)]
@@ -429,7 +561,7 @@ pub mod trigonometric {
     }
 
     impl Integrate for Sin {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             cos() * constant(-1.)
         }
     }
@@ -452,7 +584,7 @@ pub mod trigonometric {
     }
 
     impl Integrate for Cos {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             sin()
         }
     }
@@ -475,7 +607,7 @@ pub mod trigonometric {
     }
 
     impl Integrate for Tan {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             constant(-1.) * chain(cos().abs(), ln()) // -ln(|cos(t)|)
         }
     }
@@ -497,7 +629,7 @@ pub mod trigonometric {
     }
 
     impl Integrate for ArcSin {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             arcsin() * linear() + (constant(1.) - power(2.)).sqrt()
         }
     }
@@ -520,7 +652,7 @@ pub mod trigonometric {
     }
 
     impl Integrate for ArcCos {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             arccos() * linear() - (constant(1.) - power(2.)).sqrt()
         }
     }
@@ -541,7 +673,7 @@ pub mod trigonometric {
         }
     }
     impl Integrate for ArcTan {
-        fn f(&self) -> FunctionT {
+        fn integral(&self) -> FunctionT {
             // atan(t) * x - 0.5 * ln(1 + t^2)
             arctan() * linear() - constant(0.5) * chain(constant(1.) + power(2.), ln())
         }
@@ -554,33 +686,137 @@ pub mod trigonometric {
 }
 
 pub mod hyperbolic {
+    use super::prelude::*;
+
     /// f(t) = sinh(t)
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Sinh;
+    impl FnOfT for Sinh {
+        fn f(&self, t: f64) -> f64 {
+            t.sinh()
+        }
+    }
+
+    impl Integrate for Sinh {
+        fn integral(&self) -> FunctionT {
+            cosh()
+        }
+    }
+
+    impl Differentiate for Sinh {
+        fn df_dt(&self) -> FunctionT {
+            cosh()
+        }
+    }
 
     /// f(t) = cosh(t)
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Cosh;
 
+    impl FnOfT for Cosh {
+        fn f(&self, t: f64) -> f64 {
+            t.cosh()
+        }
+    }
+    impl Integrate for Cosh {
+        fn integral(&self) -> FunctionT {
+            sinh()
+        }
+    }
+    impl Differentiate for Cosh {
+        fn df_dt(&self) -> FunctionT {
+            sinh()
+        }
+    }
+
     /// f(t) = tanh(t)
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Tanh;
+
+    impl FnOfT for Tanh {
+        fn f(&self, t: f64) -> f64 {
+            t.tanh()
+        }
+    }
+
+    impl Integrate for Tanh {
+        fn integral(&self) -> FunctionT {
+            chain(cosh(), ln())
+        }
+    }
+    impl Differentiate for Tanh {
+        fn df_dt(&self) -> FunctionT {
+            constant(1.) / (cosh() * cosh()) // 1 / cosh^2(t) = sech^2(t)
+        }
+    }
 
     /// f(t) = arcsinh(t)
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct ArcSinh;
 
+    impl FnOfT for ArcSinh {
+        fn f(&self, t: f64) -> f64 {
+            t.asinh()
+        }
+    }
+    impl Integrate for ArcSinh {
+        fn integral(&self) -> FunctionT {
+            arcsinh() * linear() - (constant(1.) + power(2.)).sqrt()
+        }
+    }
+    impl Differentiate for ArcSinh {
+        fn df_dt(&self) -> FunctionT {
+            constant(1.) / (constant(1.) + linear().pow(2.)).sqrt() // 1 / sqrt(1 + t^2)
+        }
+    }
+
     /// f(t) = arccosh(t)
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct ArcCosh;
 
+    impl FnOfT for ArcCosh {
+        fn f(&self, t: f64) -> f64 {
+            t.acosh()
+        }
+    }
+
+    impl Integrate for ArcCosh {
+        fn integral(&self) -> FunctionT {
+            arccosh() * linear() - (power(2.) + constant(1.)).sqrt() * (power(2.) - constant(1.))
+        }
+    }
+
+    impl Differentiate for ArcCosh {
+        fn df_dt(&self) -> FunctionT {
+            constant(1.) / (power(2.) - constant(1.)).sqrt()
+        }
+    }
+
     /// f(t) = arctanh(t)
     #[derive(Debug, Clone)]
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct ArcTanh;
+
+    impl FnOfT for ArcTanh {
+        fn f(&self, t: f64) -> f64 {
+            t.atanh()
+        }
+    }
+
+    impl Integrate for ArcTanh {
+        fn integral(&self) -> FunctionT {
+            arctanh() * linear() + constant(0.5) * (constant(1.) - power(2.)).ln()
+        }
+    }
+
+    impl Differentiate for ArcTanh {
+        fn df_dt(&self) -> FunctionT {
+            constant(1.) / (constant(1.) - power(2.)) // 1 / (1 - t^2)
+        }
+    }
 }
