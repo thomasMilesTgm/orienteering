@@ -2,7 +2,6 @@
 
 pub mod operation;
 pub mod primitives;
-pub mod traits;
 
 use enum_dispatch::enum_dispatch;
 
