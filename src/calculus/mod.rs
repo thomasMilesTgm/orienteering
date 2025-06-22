@@ -1,6 +1,8 @@
 //! Basic calculus utilities for composing differential functions
 
+pub mod operation;
 pub mod primitives;
+pub mod traits;
 
 use enum_dispatch::enum_dispatch;
 

@@ -2,76 +2,585 @@
 
 pub type Number = f64;
 
+pub mod prelude {
+    pub use super::FunctionT;
+    pub use super::helpers::*;
+}
+
 pub mod consts {
+    pub use std::f64::consts::E;
+}
+
+/// A function of a single variable `t`.
+#[derive(Debug, Clone, derive_more::From)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum FunctionT {
+    /* Ops */
+    Chain(operator::Chain),
+    Plus(operator::Plus),
+    Minus(operator::Minus),
+    Times(operator::Times),
+    Divide(operator::Divide),
+
+    /* Math */
+    Constant(math::Constant),
+    Linear(math::Linear),
+    Power(math::Power),
+    Exponential(math::Exponential),
+    Logarithm(math::Logarithm),
+
+    /* Trig */
+    Sin(trigonometric::Sin),
+    Cos(trigonometric::Cos),
+    Tan(trigonometric::Tan),
+    ArcSin(trigonometric::ArcSin),
+    ArcCos(trigonometric::ArcCos),
+    ArcTan(trigonometric::ArcTan),
+
+    /* Hyperbolic */
+    Sinh(hyperbolic::Sinh),
+    Cosh(hyperbolic::Cosh),
+    Tanh(hyperbolic::Tanh),
+    ArcSinh(hyperbolic::ArcSinh),
+    ArcCosh(hyperbolic::ArcCosh),
+    ArcTanh(hyperbolic::ArcTanh),
+}
+impl FunctionT {
+    pub fn sqrt(self) -> Self {
+        use helpers::*;
+        chain(self, power(0.5))
+    }
+
+    pub fn abs(self) -> Self {
+        self.pow(2.).sqrt() // sqrt(f(t)^2)
+    }
+    pub fn pow(self, exponent: Number) -> Self {
+        use helpers::*;
+        chain(self, power(exponent))
+    }
+}
+
+mod helpers {
     use super::*;
-    use std::f64::consts::E;
 
-    /// e^t
-    pub const EXP: Exponential = Exponential { base: E };
+    /// f(t) = outer(inner(t))
+    pub fn chain<L: Into<FunctionT>, R: Into<FunctionT>>(inner: L, outer: R) -> FunctionT {
+        FunctionT::Chain(operator::Chain::new(outer, inner))
+    }
 
-    /// Natural log
-    pub const LN: Logarithm = Logarithm { base: E };
+    /// f(t) = |f(t)|
+    pub fn abs<F: Into<FunctionT>>(f: F) -> FunctionT {
+        let f: FunctionT = f.into();
+        f.abs()
+    }
+
+    /// f(t) = c
+    pub const fn constant(value: Number) -> FunctionT {
+        FunctionT::Constant(math::Constant(value))
+    }
+    /// f(t) = t
+    pub const fn linear() -> FunctionT {
+        FunctionT::Linear(math::Linear)
+    }
+    /// f(t) = t^exponent
+    pub const fn power(exponent: Number) -> FunctionT {
+        FunctionT::Power(math::Power { exponent })
+    }
+    /// f(t) = base^t
+    pub const fn exponential(base: Number) -> FunctionT {
+        FunctionT::Exponential(math::Exponential { base })
+    }
+    /// f(t) = e^t
+    pub const fn exp() -> FunctionT {
+        FunctionT::Exponential(math::Exponential { base: consts::E })
+    }
+    /// f(t) = log_base(t)
+    pub const fn logarithm(base: Number) -> FunctionT {
+        FunctionT::Logarithm(math::Logarithm { base })
+    }
+    /// f(t) = ln(t)
+    pub const fn ln() -> FunctionT {
+        FunctionT::Logarithm(math::Logarithm { base: consts::E })
+    }
+    /// f(t) = sin(t)
+    pub const fn sin() -> FunctionT {
+        FunctionT::Sin(trigonometric::Sin)
+    }
+    /// f(t) = cos(t)
+    pub const fn cos() -> FunctionT {
+        FunctionT::Cos(trigonometric::Cos)
+    }
+    /// f(t) = tan(t)
+    pub const fn tan() -> FunctionT {
+        FunctionT::Tan(trigonometric::Tan)
+    }
+    /// f(t) = arcsin(t)
+    pub const fn arcsin() -> FunctionT {
+        FunctionT::ArcSin(trigonometric::ArcSin)
+    }
+    /// f(t) = arccos(t)
+    pub const fn arccos() -> FunctionT {
+        FunctionT::ArcCos(trigonometric::ArcCos)
+    }
+    /// f(t) = arctan(t)
+    pub const fn arctan() -> FunctionT {
+        FunctionT::ArcTan(trigonometric::ArcTan)
+    }
+    /// f(t) = sinh(t)
+    pub const fn sinh() -> FunctionT {
+        FunctionT::Sinh(hyperbolic::Sinh)
+    }
+    /// f(t) = cosh(t)
+    pub const fn cosh() -> FunctionT {
+        FunctionT::Cosh(hyperbolic::Cosh)
+    }
+    /// f(t) = tanh(t)
+    pub const fn tanh() -> FunctionT {
+        FunctionT::Tanh(hyperbolic::Tanh)
+    }
+    /// f(t) = arcsinh(t)
+    pub const fn arcsinh() -> FunctionT {
+        FunctionT::ArcSinh(hyperbolic::ArcSinh)
+    }
+    /// f(t) = arccosh(t)
+    pub const fn arccosh() -> FunctionT {
+        FunctionT::ArcCosh(hyperbolic::ArcCosh)
+    }
+    /// f(t) = arctanh(t)
+    pub const fn arctanh() -> FunctionT {
+        FunctionT::ArcTanh(hyperbolic::ArcTanh)
+    }
 }
 
-/// f(t) = [`Constant::k`]
-pub struct Constant {
-    pub k: Number,
+impl<T: Into<FunctionT>> std::ops::Add<T> for FunctionT {
+    type Output = Self;
+
+    fn add(self, rhs: T) -> Self::Output {
+        operator::Plus::new(self.clone(), rhs).into()
+    }
 }
 
-/// f(t) = t
-pub struct Linear;
-
-/// f(t) = t^[`Power::exponent`]
-pub struct Power {
-    pub exponent: Number,
+impl<T: Into<FunctionT>> std::ops::Sub<T> for FunctionT {
+    type Output = Self;
+    fn sub(self, rhs: T) -> Self::Output {
+        operator::Minus::new(self.clone(), rhs).into()
+    }
 }
 
-/// f(t) = [`Exponential`]^t
-pub struct Exponential {
-    pub base: Number,
+impl<T: Into<FunctionT>> std::ops::Mul<T> for FunctionT {
+    type Output = Self;
+    fn mul(self, rhs: T) -> Self::Output {
+        operator::Times::new(self.clone(), rhs).into()
+    }
 }
 
-/// f(t) = log_[`base`](Logarithm::base)(t)
-pub struct Logarithm {
-    pub base: Number,
+impl<T: Into<FunctionT>> std::ops::Div<T> for FunctionT {
+    type Output = Self;
+    fn div(self, rhs: T) -> Self::Output {
+        operator::Divide::new(self.clone(), rhs).into()
+    }
+}
+
+pub mod operator {
+
+    use super::FunctionT;
+
+    /// Use the
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Chain {
+        outer: Box<FunctionT>,
+        inner: Box<FunctionT>,
+    }
+    impl Chain {
+        pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(inner: L, outer: R) -> Self {
+            Self {
+                outer: Box::new(outer.into()),
+                inner: Box::new(inner.into()),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Plus {
+        lhs: Box<FunctionT>,
+        rhs: Box<FunctionT>,
+    }
+    impl Plus {
+        pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(lhs: L, rhs: R) -> Self {
+            Self {
+                lhs: Box::new(lhs.into()),
+                rhs: Box::new(rhs.into()),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Minus {
+        lhs: Box<FunctionT>,
+        rhs: Box<FunctionT>,
+    }
+    impl Minus {
+        pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(lhs: L, rhs: R) -> Self {
+            Self {
+                lhs: Box::new(lhs.into()),
+                rhs: Box::new(rhs.into()),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Times {
+        lhs: Box<FunctionT>,
+        rhs: Box<FunctionT>,
+    }
+    impl Times {
+        pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(lhs: L, rhs: R) -> Self {
+            Self {
+                lhs: Box::new(lhs.into()),
+                rhs: Box::new(rhs.into()),
+            }
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Divide {
+        lhs: Box<FunctionT>,
+        rhs: Box<FunctionT>,
+    }
+    impl Divide {
+        pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(lhs: L, rhs: R) -> Self {
+            Self {
+                lhs: Box::new(lhs.into()),
+                rhs: Box::new(rhs.into()),
+            }
+        }
+    }
+}
+
+pub mod math {
+    use super::helpers::*;
+    use super::{FunctionT, Number};
+    use crate::calculus::traits::*;
+
+    /// f(t) = [`Constant::0`]
+    #[derive(Debug, Clone, Copy)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Constant(pub Number);
+
+    impl FnOfT for Constant {
+        fn f(&self, _: Number) -> Number {
+            self.0
+        }
+    }
+
+    impl Integrate for Constant {
+        fn f(&self) -> FunctionT {
+            linear() * *self
+        }
+    }
+
+    impl Differentiate for Constant {
+        fn df_dt(&self) -> FunctionT {
+            constant(0.)
+        }
+    }
+
+    /// f(t) = t
+    #[derive(Debug, Clone, Copy)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Linear;
+
+    impl FnOfT for Linear {
+        fn f(&self, t: Number) -> Number {
+            t
+        }
+    }
+
+    impl Integrate for Linear {
+        fn f(&self) -> FunctionT {
+            constant(0.5) * power(2.)
+        }
+    }
+
+    impl Differentiate for Linear {
+        fn df_dt(&self) -> FunctionT {
+            constant(1.)
+        }
+    }
+
+    /// f(t) = t^[`Power::exponent`]
+    #[derive(Debug, Clone, Copy)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Power {
+        pub exponent: Number,
+    }
+
+    impl FnOfT for Power {
+        fn f(&self, t: Number) -> Number {
+            t.powf(self.exponent)
+        }
+    }
+
+    impl Integrate for Power {
+        fn f(&self) -> FunctionT {
+            if self.exponent == -1.0 {
+                ln() * linear() - linear()
+            } else {
+                constant(1. / (self.exponent + 1.)) * power(self.exponent + 1.0)
+            }
+        }
+    }
+
+    impl Differentiate for Power {
+        fn df_dt(&self) -> FunctionT {
+            if self.exponent == 0.0 {
+                constant(0.)
+            } else {
+                constant(self.exponent) * power(self.exponent - 1.0)
+            }
+        }
+    }
+
+    /// f(t) = [`Exponential`]^t
+    #[derive(Debug, Clone, Copy)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Exponential {
+        pub base: Number,
+    }
+
+    impl FnOfT for Exponential {
+        fn f(&self, t: Number) -> Number {
+            self.base.powf(t)
+        }
+    }
+
+    impl Integrate for Exponential {
+        fn f(&self) -> FunctionT {
+            if self.base == super::consts::E {
+                exp()
+            } else {
+                exponential(self.base) / constant(self.base.ln())
+            }
+        }
+    }
+    impl Differentiate for Exponential {
+        fn df_dt(&self) -> FunctionT {
+            if self.base == super::consts::E {
+                exp()
+            } else {
+                exponential(self.base) * constant(self.base.ln())
+            }
+        }
+    }
+
+    /// f(t) = log_[`base`](Logarithm::base)(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct Logarithm {
+        pub base: Number,
+    }
+
+    impl FnOfT for Logarithm {
+        fn f(&self, t: Number) -> Number {
+            t.log(self.base)
+        }
+    }
+
+    impl Integrate for Logarithm {
+        fn f(&self) -> FunctionT {
+            if self.base == super::consts::E {
+                ln() * linear() - linear()
+            } else {
+                logarithm(self.base) * linear() - linear() / ln()
+            }
+        }
+    }
+    impl Differentiate for Logarithm {
+        fn df_dt(&self) -> FunctionT {
+            if self.base == super::consts::E {
+                constant(1.) / linear()
+            } else {
+                constant(1.) / (constant(self.base.ln()) * linear())
+            }
+        }
+    }
 }
 
 pub mod trigonometric {
+    use super::FunctionT;
+    use super::Number;
+    use super::helpers::*;
+    use crate::calculus::traits::*;
+
     /// f(t) = sin(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Sin;
 
+    impl FnOfT for Sin {
+        fn f(&self, t: Number) -> Number {
+            t.sin()
+        }
+    }
+
+    impl Integrate for Sin {
+        fn f(&self) -> FunctionT {
+            cos() * constant(-1.)
+        }
+    }
+
+    impl Differentiate for Sin {
+        fn df_dt(&self) -> FunctionT {
+            cos()
+        }
+    }
+
     /// f(t) = cos(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Cos;
 
+    impl FnOfT for Cos {
+        fn f(&self, t: Number) -> Number {
+            t.cos()
+        }
+    }
+
+    impl Integrate for Cos {
+        fn f(&self) -> FunctionT {
+            sin()
+        }
+    }
+
+    impl Differentiate for Cos {
+        fn df_dt(&self) -> FunctionT {
+            sin() * constant(-1.)
+        }
+    }
+
     /// f(t) = tan(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Tan;
 
+    impl FnOfT for Tan {
+        fn f(&self, t: Number) -> Number {
+            t.tan()
+        }
+    }
+
+    impl Integrate for Tan {
+        fn f(&self) -> FunctionT {
+            constant(-1.) * chain(cos().abs(), ln()) // -ln(|cos(t)|)
+        }
+    }
+    impl Differentiate for Tan {
+        fn df_dt(&self) -> FunctionT {
+            constant(1.) / (cos() * cos()) // 1 / sec^2(t)
+        }
+    }
+
     /// f(t) = arcsin(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct ArcSin;
 
-    /// f(t) = arcsin(t)
-    pub struct ArcTan;
+    impl FnOfT for ArcSin {
+        fn f(&self, t: Number) -> Number {
+            t.asin()
+        }
+    }
+
+    impl Integrate for ArcSin {
+        fn f(&self) -> FunctionT {
+            arcsin() * linear() + (constant(1.) - power(2.)).sqrt()
+        }
+    }
+
+    impl Differentiate for ArcSin {
+        fn df_dt(&self) -> FunctionT {
+            constant(1.) / (constant(1.) - linear().pow(2.)).sqrt() // 1 / sqrt(1 - t^2)
+        }
+    }
 
     /// f(t) = arccos(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct ArcCos;
+
+    impl FnOfT for ArcCos {
+        fn f(&self, t: Number) -> Number {
+            t.acos()
+        }
+    }
+
+    impl Integrate for ArcCos {
+        fn f(&self) -> FunctionT {
+            arccos() * linear() - (constant(1.) - power(2.)).sqrt()
+        }
+    }
+    impl Differentiate for ArcCos {
+        fn df_dt(&self) -> FunctionT {
+            constant(-1.) / (constant(1.) - linear().pow(2.)).sqrt() // -1 / sqrt(1 - t^2)
+        }
+    }
+
+    /// f(t) = arcsin(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+    pub struct ArcTan;
+
+    impl FnOfT for ArcTan {
+        fn f(&self, t: Number) -> Number {
+            t.atan()
+        }
+    }
+    impl Integrate for ArcTan {
+        fn f(&self) -> FunctionT {
+            // atan(t) * x - 0.5 * ln(1 + t^2)
+            arctan() * linear() - constant(0.5) * chain(constant(1.) + power(2.), ln())
+        }
+    }
+    impl Differentiate for ArcTan {
+        fn df_dt(&self) -> FunctionT {
+            constant(1.) / (constant(1.) + linear().pow(2.)) // 1 / (1 + t^2)
+        }
+    }
 }
 
 pub mod hyperbolic {
     /// f(t) = sinh(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Sinh;
 
     /// f(t) = cosh(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Cosh;
 
     /// f(t) = tanh(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct Tanh;
 
     /// f(t) = arcsinh(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct ArcSinh;
 
     /// f(t) = arccosh(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct ArcCosh;
 
     /// f(t) = arctanh(t)
+    #[derive(Debug, Clone)]
+    #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     pub struct ArcTanh;
 }
