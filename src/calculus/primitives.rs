@@ -5,6 +5,7 @@ use enum_dispatch::enum_dispatch;
 pub type Number = f64;
 
 pub mod arithmetic;
+pub mod format;
 mod helpers;
 pub mod hyperbolic;
 pub mod operator;

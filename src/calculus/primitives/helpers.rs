@@ -85,7 +85,7 @@ impl FunctionT {
 
 /// f(t) = outer(inner(t))
 pub fn chain<L: Into<FunctionT>, R: Into<FunctionT>>(inner: L, outer: R) -> FunctionT {
-    FunctionT::Chain(operator::Chain::new(outer, inner))
+    FunctionT::Chain(operator::Chain::new(inner, outer))
 }
 
 /// f(t) = |f(t)|

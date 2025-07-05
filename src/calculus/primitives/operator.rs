@@ -6,8 +6,8 @@ use super::{FunctionT, Number};
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Chain {
-    outer: Box<FunctionT>,
-    inner: Box<FunctionT>,
+    pub(crate) outer: Box<FunctionT>,
+    pub(crate) inner: Box<FunctionT>,
 }
 impl Chain {
     pub fn new<L: Into<FunctionT>, R: Into<FunctionT>>(inner: L, outer: R) -> Self {
@@ -37,8 +37,8 @@ impl Differentiate for Chain {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Plus {
-    lhs: Box<FunctionT>,
-    rhs: Box<FunctionT>,
+    pub(crate) lhs: Box<FunctionT>,
+    pub(crate) rhs: Box<FunctionT>,
 }
 impl FnOfT for Plus {
     fn f(&self, t: Number) -> Number {
@@ -67,8 +67,8 @@ impl Plus {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Minus {
-    lhs: Box<FunctionT>,
-    rhs: Box<FunctionT>,
+    pub(crate) lhs: Box<FunctionT>,
+    pub(crate) rhs: Box<FunctionT>,
 }
 impl FnOfT for Minus {
     fn f(&self, t: Number) -> Number {
@@ -97,8 +97,8 @@ impl Minus {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Times {
-    lhs: Box<FunctionT>,
-    rhs: Box<FunctionT>,
+    pub(crate) lhs: Box<FunctionT>,
+    pub(crate) rhs: Box<FunctionT>,
 }
 impl FnOfT for Times {
     fn f(&self, t: Number) -> Number {
@@ -128,8 +128,8 @@ impl Times {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Divide {
-    lhs: Box<FunctionT>,
-    rhs: Box<FunctionT>,
+    pub(crate) lhs: Box<FunctionT>,
+    pub(crate) rhs: Box<FunctionT>,
 }
 impl FnOfT for Divide {
     fn f(&self, t: Number) -> Number {
