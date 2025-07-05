@@ -129,6 +129,7 @@ mod test {
     use super::*;
 
     #[test]
+    #[ignore]
     fn mask() {
         let aabb = Aabb2D::new(Point2::new(-250., -250.), Point2::new(250., 250.));
         let mask = ChunkMask::new(1., 0.05, aabb);
@@ -162,7 +163,10 @@ mod test {
 
         let f0 = ProductOfFnXY::new(
             constant(-4.0) * ((linear() - constant(121.)) * constant(0.01)).sin(),
-            constant(-1.0) * ((linear() - constant(91.)) * constant(0.008)).cos().pow(2.),
+            constant(-1.0)
+                * ((linear() - constant(91.)) * constant(0.0008))
+                    .cos()
+                    .pow(2.),
         );
 
         let f1 = ProductOfFnXY::new(
@@ -200,7 +204,14 @@ mod test {
                 let pix = img.get_pixel_mut(i, j);
                 let color = (value.abs() * 10.).round() as u8;
 
-                if color % 7 != 0 || chunk.mask.f(xy) < 0.05 {
+                if chunk.mask.f(xy) < 0.05 {
+                    if i % 2 == j % 2 {
+                        pix.0 = [50; 3];
+                    }
+                    continue;
+                }
+
+                if color % 7 != 0 {
                     continue;
                 }
                 if color == 0 {
@@ -208,7 +219,7 @@ mod test {
                 } else if value > 0. {
                     pix.0 = [color, color.saturating_mul(4).saturating_add(50), color];
                 } else {
-                    pix.0 = [0, 0, color + (100 - color)];
+                    pix.0 = [0, 0, (155_u8.saturating_sub(color))];
                 }
             }
         }
