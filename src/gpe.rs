@@ -8,14 +8,76 @@
 //! up of a linear combination of [`GpeChunk`]s, which are localized using a pair of phase shifted
 //! hyperbolic tan functions to ensure the summed field remains continuously differential, while
 //! the effect of the field functions can be ignored once you're more than one chunk away.
+//!
+//! # Chunks
+//!
+//! ## Coordinate Offsets
+//!
+//! The [`Gpe`] of the world is lazily constructed out of 1000 x 1000m chunks, positioned using
+//! [`ChunkIndex`] .
+//!
+//! For consistency, the chunk's GPE field arguments (x, y) are defined such that the values inside
+//! the chuck are in the range [-500, 500]:
+//!
+//! `φ(x, y) = f(x_g - offset_x, y_g - offset_y)`
+//!
+//! ## Masks
+//!
+//! Each [`GpeChunk`] has a [`ChunkMask`] applied to it in order to localize the effect of it's
+//! field to a particular region of the map.
+//!
+//! To make sure we have smooth transitions between chunks, the [`ChunkMask`] is larger than the
+//! chunk itself, and when computing the GPE at a point in regions near the border of a chunk, it's
+//! the neighboring chunk(s) also evaluate.
+//!
+//! ## Frequency Constraints & Sub-Chunking
+//!
+//! Summing many oscillating fields with different phases can be used to construct arbitrary
+//! signals (basically a 2D Fourier series). When procedurally generating these functions though
+//! it's difficult to ensure you're not going to get repeating patterns in the resultant field,
+//! which ends up looking unnatural.
+//!
+//! To avoid this, rather than generating one large and inevitably complicated function that is
+//! applied over the whole chunk, the chunk is recursively divided into smaller sub-chunks, and
+//! when the functions within any given sub-chunk are randomly generated, they are generated such
+//! that their period is no larger than the size of the sub-chunk. These sub-chunks are masked in
+//! the same way as the chunk itself to localize them to the part of the chunk they're in.
+//!
+//! Deeper sub-chunks must have their effect scaled down to avoid wild fluctuations in small areas
+//! of the field which would look very unnatural.
+//!
+//! By randomizing sub-chunk recursion depth we can generate more or less variation in the local
+//! GPE field. Because of how the frequency constraints are applied based on the size of a
+//! sub-chunk, the sub-chunking depth in a particular map region can be used to classify the biome
+//! of the generated region.
+//!
+//! - Very little/no sub-chunking producing less variation local variation in the GPE.
+//!     - Biomes: Plains/Desert/Tundra
+//!
+//! - Low-moderate sub-chunking will produce more variability in the field while remaining fairly
+//!   smooth.
+//!     - Biomes: Grasslands/Forests/Hilly
+//!
+//! - Deep sub-chunking will result in a lot of local fluctuation in the field.
+//!     - Biomes: Mountains/Rocky
 
 use crate::calculus::primitives::prelude::*;
 use derive_more::{Deref, DerefMut, From};
 use nalgebra::Point2;
 use std::collections::HashMap;
 
+pub const CHUNK_SIZE: f64 = 1000.0; // Size of each chunk in the GPE field, meters.
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ChunkIndex(usize, usize);
+pub struct ChunkIndex {
+    /// The x-origin of the chunk at this index is at [`ChunkIndex::x`] * [`CHUNK_SIZE`] (meters) in
+    /// world coordinates.
+    pub x: i64,
+
+    /// The y origin of the chunk at this index is at [`ChunkIndex::y`] * [`CHUNK_SIZE`] (meters) in
+    /// world coordinates.
+    pub y: i64,
+}
 
 pub struct Gpe {
     pub chunks: HashMap<ChunkIndex, GpeChunk>,
@@ -122,11 +184,9 @@ impl ChunkMask {
 
 #[cfg(test)]
 mod test {
-    use std::io::Cursor;
-
-    use image::{ImageFormat, RgbImage};
-
     use super::*;
+    use image::{ImageFormat, RgbImage};
+    use std::io::Cursor;
 
     #[test]
     #[ignore]
