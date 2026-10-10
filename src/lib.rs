@@ -3,5 +3,6 @@
 //! Rust library for procedural world generation.
 
 pub mod proc_gen;
+pub mod terrain;
 pub mod topography;
 pub mod utils;
