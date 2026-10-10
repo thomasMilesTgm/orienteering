@@ -1,59 +1,10 @@
 //! Extracting contour lines (level sets of the height field) with marching squares.
 
-use super::field::{Aabb, Surface};
+use super::field::Surface;
+use super::grid::HeightGrid;
 use nalgebra::Point2;
+use rayon::prelude::*;
 use std::collections::HashMap;
-
-/// Heights sampled on a regular grid.
-#[derive(Debug, Clone)]
-pub struct HeightGrid {
-    pub origin: Point2<f64>,
-    pub spacing: f64,
-    pub nx: usize,
-    pub ny: usize,
-    values: Vec<f64>,
-}
-
-impl HeightGrid {
-    pub fn sample<S: Surface + ?Sized>(surface: &S, area: Aabb, spacing: f64) -> Self {
-        let nx = (area.width() / spacing).ceil() as usize + 1;
-        let ny = (area.height() / spacing).ceil() as usize + 1;
-        let mut grid = Self {
-            origin: area.min,
-            spacing,
-            nx,
-            ny,
-            values: Vec::with_capacity(nx * ny),
-        };
-        for j in 0..ny {
-            for i in 0..nx {
-                grid.values.push(surface.height(grid.point(i, j)));
-            }
-        }
-        grid
-    }
-
-    pub fn get(&self, i: usize, j: usize) -> f64 {
-        self.values[j * self.nx + i]
-    }
-
-    pub fn point(&self, i: usize, j: usize) -> Point2<f64> {
-        self.origin + nalgebra::Vector2::new(i as f64, j as f64) * self.spacing
-    }
-
-    pub fn values(&self) -> &[f64] {
-        &self.values
-    }
-
-    /// The (min, max) sampled height.
-    pub fn range(&self) -> (f64, f64) {
-        self.values
-            .iter()
-            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
-                (lo.min(v), hi.max(v))
-            })
-    }
-}
 
 /// A polyline along which the height equals `level`.
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +20,11 @@ pub struct Contour {
 impl Contour {
     /// Snaps each vertex onto the exact level set with Newton steps along the gradient, removing
     /// the error from linear interpolation between grid samples.
+    #[tracing::instrument(
+        level = "debug",
+        skip_all,
+        fields(level = self.level, points = self.points.len(), iterations = iterations)
+    )]
     pub fn refine<S: Surface + ?Sized>(&mut self, surface: &S, iterations: usize) {
         for p in &mut self.points {
             for _ in 0..iterations {
@@ -81,6 +37,20 @@ impl Contour {
             }
         }
     }
+}
+
+/// [`Contour::refine`]s every contour, in parallel.
+#[tracing::instrument(level = "info", skip_all, fields(contours = contours.len()))]
+pub fn refine_all<S: Surface + Sync + ?Sized>(
+    contours: &mut [Contour],
+    surface: &S,
+    iterations: usize,
+) {
+    let span = tracing::Span::current();
+    contours.par_iter_mut().for_each(|c| {
+        let _parent = span.enter();
+        c.refine(surface, iterations);
+    });
 }
 
 /// Contour levels: every multiple of `interval` within `[min, max]`.
@@ -98,16 +68,27 @@ enum Edge {
     V(usize, usize),
 }
 
-/// Extracts all contours of `grid` at each of `levels`.
+/// Extracts all contours of `grid` at each of `levels`, one level per task in parallel.
+#[tracing::instrument(level = "info", skip_all, fields(levels, contours))]
 pub fn contours(grid: &HeightGrid, levels: impl IntoIterator<Item = f64>) -> Vec<Contour> {
-    levels
-        .into_iter()
-        .flat_map(|level| contours_at(grid, level))
-        .collect()
+    let levels: Vec<f64> = levels.into_iter().collect();
+    let span = tracing::Span::current();
+    let lines: Vec<_> = levels
+        .par_iter()
+        .flat_map_iter(|&level| {
+            let _parent = span.enter();
+            contours_at(grid, level)
+        })
+        .collect();
+    span.record("levels", levels.len())
+        .record("contours", lines.len());
+    lines
 }
 
+#[tracing::instrument(level = "debug", skip(grid), fields(segments, contours))]
 fn contours_at(grid: &HeightGrid, level: f64) -> Vec<Contour> {
     let segments = segments(grid, level);
+    tracing::Span::current().record("segments", segments.len());
 
     let mut adjacent: HashMap<Edge, Vec<usize>> = HashMap::new();
     for (s, &(a, b)) in segments.iter().enumerate() {
@@ -155,6 +136,7 @@ fn contours_at(grid: &HeightGrid, level: f64) -> Vec<Contour> {
         }
     }
 
+    tracing::Span::current().record("contours", lines.len());
     lines
         .into_iter()
         .map(|(edges, closed)| Contour {
@@ -224,7 +206,7 @@ fn segments(grid: &HeightGrid, level: f64) -> Vec<(Edge, Edge)> {
 
 #[cfg(test)]
 mod test {
-    use super::super::field::Field;
+    use super::super::field::{Aabb, Field};
     use super::*;
     use approx::assert_relative_eq;
 

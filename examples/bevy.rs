@@ -5,18 +5,15 @@ use std::collections::BTreeMap;
 use bevy::{
     DefaultPlugins,
     app::{App, Plugin, Startup, Update},
+    camera::Camera2d,
     color::Color,
-    core_pipeline::core_2d::Camera2d,
+    curve::cubic_splines::{CubicCurve, CubicGenerator, CubicHermite},
     ecs::{
         resource::Resource,
         system::{Res, ResMut},
     },
     gizmos::gizmos::Gizmos,
-    math::{
-        NormedVectorSpace, Vec2,
-        cubic_splines::{CubicCurve, CubicGenerator, CubicHermite},
-        vec2,
-    },
+    math::{NormedVectorSpace, Vec2, vec2},
     prelude::*,
 };
 use nalgebra::Point2;

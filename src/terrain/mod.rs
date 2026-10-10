@@ -14,8 +14,11 @@
 //!   [`Window`]s).
 //! - [`generate`]: The [`World`] is tiled with chunks generated lazily and deterministically from
 //!   `hash(seed, chunk index)`, so they can be produced in any order.
-//! - [`contour`]: Marching squares over a sampled [`HeightGrid`], with optional Newton refinement
-//!   of vertices onto the exact level set using the analytic gradient.
+//! - [`grid`]: [`HeightGrid`], heights (and optionally exact gradients) sampled in parallel.
+//! - [`contour`]: Marching squares over a [`HeightGrid`], with optional Newton refinement of
+//!   vertices onto the exact level set using the analytic gradient.
+//! - [`biome`]: Classification of the terrain into [`Biome`]s by altitude and slope, cleaned up
+//!   into coherent regions.
 //!
 //! ## Chunks and Windows
 //!
@@ -31,19 +34,27 @@
 //! scaled by `amplitude_falloff^depth`, so deeper nodes add shorter wavelengths with smaller
 //! relief. This is like octaves of noise, but localized and with no global repetition. Each node
 //! is subdivided with probability equal to the chunk's `ruggedness`, so the subdivision depth
-//! sets the character of the terrain (a proxy for biome):
+//! sets the character of the terrain: shallow chunks have smooth, gentle relief, deep chunks have
+//! lots of small, sharp features.
 //!
-//! - Shallow: smooth, gentle relief (plains, desert, tundra).
-//! - Moderate: rolling, varied relief (grassland, forest, hills).
-//! - Deep: lots of small, sharp features (mountains, rocky ground).
+//! ## Biomes
+//!
+//! Biomes follow from the generated shape rather than being generated separately: an ordered list
+//! of [`BiomeRules`] maps each point's altitude and slope to a [`Biome`] (water below the water
+//! line, rock where it is too steep for vegetation, alpine above the tree line, marsh and meadow on
+//! flat ground, forest elsewhere). Rugged chunks are steeper, so they naturally produce more rock.
 
+pub mod biome;
 pub mod contour;
 pub mod field;
 pub mod generate;
+pub mod grid;
 pub mod rng;
 pub mod scalar;
 
-pub use contour::{Contour, HeightGrid, contours, levels};
+pub use biome::{Band, Biome, BiomeMap, BiomeRegion, BiomeRule, BiomeRules, Regions};
+pub use contour::{Contour, contours, levels, refine_all};
 pub use field::{Aabb, Field, Surface, Window};
 pub use generate::{Chunk, ChunkIndex, Region, TerrainParams, World};
+pub use grid::HeightGrid;
 pub use scalar::{Dual, Scalar};

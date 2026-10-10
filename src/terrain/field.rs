@@ -77,8 +77,10 @@ impl Aabb {
     }
 }
 
-/// Beyond this many blend widths outside its bounds a [`Window`] is treated as exactly zero
-/// (its true value there is ~1e-5 or smaller).
+/// The largest error, in meters, accepted from truncating a [`Window`]'s tails to zero.
+pub const WINDOW_TOLERANCE: f64 = 1e-3;
+
+/// A [`Window`]'s support never extends more than this many blend widths past its bounds.
 pub const WINDOW_CUTOFF: f64 = 6.;
 
 /// A smooth rectangular mask: ≈1 inside `bounds`, ≈0 outside, with tanh transitions of width
@@ -100,9 +102,14 @@ impl Window {
         Self { bounds, blend }
     }
 
-    /// The region outside which the window is treated as zero.
-    pub fn support(&self) -> Aabb {
-        self.bounds.grow(WINDOW_CUTOFF * self.blend)
+    /// The region outside which `window × f` is below [`WINDOW_TOLERANCE`] for any `|f| ≤ bound`,
+    /// capped at [`WINDOW_CUTOFF`] blend widths.
+    ///
+    /// A distance `d` past an edge, each axis factor is `½(1 - tanh(d/w)) < e^(-2d/w)` (and the
+    /// other factor is at most 1), so the tail is negligible once `d ≥ ½ w ln(bound / tolerance)`.
+    pub fn support(&self, bound: f64) -> Aabb {
+        let blends = (0.5 * (bound / WINDOW_TOLERANCE).ln()).clamp(0., WINDOW_CUTOFF);
+        self.bounds.grow(blends * self.blend)
     }
 
     pub fn eval<S: Scalar>(&self, x: S, y: S) -> S {
@@ -151,8 +158,13 @@ pub enum Field {
         amplitude: f64,
     },
 
-    /// `field` multiplied by `window`, and skipped entirely outside the window's support.
-    Masked { window: Window, field: Box<Field> },
+    /// `field` multiplied by `window`, and skipped entirely outside `support`, where the product
+    /// is negligible. Build with [`Field::masked`], which computes the support.
+    Masked {
+        window: Window,
+        support: Aabb,
+        field: Box<Field>,
+    },
 
     Scaled { factor: f64, field: Box<Field> },
     Sum(Vec<Field>),
@@ -193,7 +205,31 @@ impl Field {
     pub fn masked(self, window: Window) -> Self {
         Self::Masked {
             window,
+            support: window.support(self.bound()),
             field: Box::new(self),
+        }
+    }
+
+    /// An upper bound on `|h|` anywhere (possibly infinite).
+    pub fn bound(&self) -> f64 {
+        match self {
+            Self::Constant(c) => c.abs(),
+            Self::Plane { slope, .. } if *slope == Vector2::zeros() => 0.,
+            Self::Plane { .. } => f64::INFINITY,
+            Self::Bump { height, .. } | Self::Ridge { height, .. } => height.abs(),
+            Self::Wave { amplitude, .. } => amplitude.abs(),
+            Self::Masked { field, .. } => field.bound(),
+            Self::Scaled { factor, .. } if *factor == 0. => 0.,
+            Self::Scaled { factor, field } => factor.abs() * field.bound(),
+            Self::Sum(fields) => fields.iter().map(Self::bound).sum(),
+            Self::Product(fields) => {
+                let bounds: Vec<f64> = fields.iter().map(Self::bound).collect();
+                if bounds.contains(&0.) {
+                    0.
+                } else {
+                    bounds.iter().product()
+                }
+            }
         }
     }
 
@@ -244,8 +280,12 @@ impl Field {
                     .sin()
                     .scale(*amplitude)
             }
-            Self::Masked { window, field } => {
-                if !window.support().contains(Point2::new(x.value(), y.value())) {
+            Self::Masked {
+                window,
+                support,
+                field,
+            } => {
+                if !support.contains(Point2::new(x.value(), y.value())) {
                     return S::constant(0.);
                 }
                 window.eval(x, y) * field.eval(x, y)
@@ -361,6 +401,42 @@ mod test {
         for &(x, y) in &[(0., 0.), (150., 1.), (-299., 37.), (12., -150.5), (-75., 75.)] {
             let sum: f64 = tiles.iter().map(|w| w.eval(x, y)).sum();
             assert_relative_eq!(sum, whole.eval(x, y), epsilon = 1e-12);
+        }
+    }
+
+    #[test]
+    fn truncated_tails_are_within_tolerance() {
+        let w = window((0., 0.), (100., 100.), 10.);
+        for height in [0.01, 1., 30., 500.] {
+            let f = Field::bump(Point2::new(50., 50.), 1e6, height).masked(w);
+            let Field::Masked { support, .. } = &f else {
+                unreachable!()
+            };
+            // Just inside the support, the untruncated value is what gets dropped beyond it.
+            let edge = Point2::new(support.max.x - 1e-9, 50.);
+            assert!(support.contains(edge));
+            // Large bounds hit the cutoff cap, which allows a proportionally larger error.
+            let allowed = WINDOW_TOLERANCE.max(height * (-2. * WINDOW_CUTOFF).exp());
+            assert!(f.height(edge).abs() <= allowed, "{height}: {}", f.height(edge));
+            assert_eq!(f.height(edge + Vector2::new(1e-6, 0.)), 0.);
+        }
+    }
+
+    #[test]
+    fn bound_is_an_upper_bound() {
+        let w = window((-100., -100.), (100., 100.), 20.);
+        let f = (Field::bump(Point2::origin(), 30., 12.)
+            + Field::wave(Vector2::new(1., 1.), 90., 0.3, 4.)
+            + Field::ridge(Point2::new(10., 0.), Vector2::new(0., 1.), 15., -7.))
+        .masked(w)
+            * Field::Constant(-2.);
+        let bound = f.bound();
+        assert_relative_eq!(bound, 46.);
+        for i in -20..=20 {
+            for j in -20..=20 {
+                let p = Point2::new(i as f64 * 7., j as f64 * 7.);
+                assert!(f.height(p).abs() <= bound);
+            }
         }
     }
 

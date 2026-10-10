@@ -129,6 +129,7 @@ impl World {
         Self::new(rng::seed_from_phrase(phrase), params)
     }
 
+    #[tracing::instrument(level = "debug", skip(self), fields(ruggedness, nodes, depth))]
     pub fn chunk(&self, index: ChunkIndex) -> Chunk {
         let mut rng = Rng64::new(rng::hash(&[self.seed, index.x as u64, index.y as u64]));
         let p = &self.params;
@@ -146,6 +147,11 @@ impl World {
         let bounds = index.bounds(p.chunk_size);
         let field = nodes.node(bounds, 0, vec![Field::Constant(base)]);
 
+        tracing::Span::current()
+            .record("ruggedness", ruggedness)
+            .record("nodes", nodes.nodes)
+            .record("depth", nodes.depth);
+
         Chunk {
             index,
             ruggedness,
@@ -156,15 +162,17 @@ impl World {
     }
 
     /// Generates every chunk needed to evaluate the terrain anywhere within `area`.
+    #[tracing::instrument(level = "info", skip(self), fields(chunks))]
     pub fn region(&self, area: Aabb) -> Region {
         let size = self.params.chunk_size;
         let lo = ChunkIndex::containing(area.min, size);
         let hi = ChunkIndex::containing(area.max, size);
 
-        let chunks = (lo.y - 1..=hi.y + 1)
+        let chunks: HashMap<_, _> = (lo.y - 1..=hi.y + 1)
             .flat_map(|y| (lo.x - 1..=hi.x + 1).map(move |x| ChunkIndex::new(x, y)))
             .map(|index| (index, self.chunk(index)))
             .collect();
+        tracing::Span::current().record("chunks", chunks.len());
 
         Region {
             area,

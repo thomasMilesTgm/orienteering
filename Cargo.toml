@@ -6,6 +6,8 @@ edition = "2024"
 [features]
 default = ["serde"]
 serde = ["dep:serde", "nalgebra/serde-serialize"]
+# Dependencies of the `profile` binary.
+profile = ["dep:tracing-subscriber", "dep:tracing-chrome"]
 
 [dependencies]
 derive_more = { version = "2.0.1", features = [
@@ -22,8 +24,16 @@ ordered-float = { version = "5.0.0", features = ["serde"] }
 rand = { version = "0.9.1", features = ["small_rng", "std_rng"] }
 serde = { version = "1.0.219", features = ["derive"], optional = true }
 strum = { version = "0.27.1", features = ["derive"] }
+rayon = "1.12.0"
+tracing = "0.1.44"
+tracing-chrome = { version = "0.7.2", optional = true }
+tracing-subscriber = { version = "0.3.23", optional = true }
+
+[[bin]]
+name = "profile"
+required-features = ["profile"]
 
 [dev-dependencies]
 approx = "0.5.1"
-bevy = "0.16.0"
+bevy = { version = "0.20.0", features = ["dynamic_linking"] }
 image = "0.25.6"
