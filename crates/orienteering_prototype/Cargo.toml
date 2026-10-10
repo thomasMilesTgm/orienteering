@@ -1,0 +1,19 @@
+[package]
+name = "orienteering_prototype"
+description = "The original vector-field prototype, kept for reference."
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "nalgebra/serde-serialize"]
+
+[dependencies]
+derive_more.workspace = true
+enum_dispatch.workspace = true
+nalgebra.workspace = true
+ordered-float.workspace = true
+rand.workspace = true
+serde = { workspace = true, optional = true }
+strum.workspace = true

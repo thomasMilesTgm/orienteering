@@ -5,9 +5,10 @@
 //! coherent regions: [`BiomeMap::smooth`] removes speckle, and [`BiomeMap::absorb_small`] merges
 //! regions below a minimum mappable area into their surroundings.
 
-use super::field::{Aabb, Surface};
-use super::grid::HeightGrid;
+use crate::grid::HeightGrid;
 use nalgebra::{Point2, Vector2};
+use orienteering_field::Surface;
+use orienteering_math::Aabb;
 use rayon::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -123,16 +124,16 @@ pub struct BiomeRules {
 }
 
 impl Default for BiomeRules {
-    /// Rules suited to the relief produced by the default
-    /// [`TerrainParams`](super::TerrainParams), where the steepest ~1% of ground is about 20° and
-    /// the highest ~1% is 60–100 m depending on the seed.
+    /// Rules suited to the relief produced by the default terrain parameters: smooth lowlands
+    /// sink into basins below the water line, and only the highest, most rugged ground rises above
+    /// the 110 m tree line.
     fn default() -> Self {
         use Biome::*;
         Self {
             rules: vec![
                 BiomeRule::new(Water, Band::below(0.), Band::ANY),
                 BiomeRule::new(Rock, Band::ANY, Band::at_least(slope_of_degrees(17.))),
-                BiomeRule::new(Alpine, Band::at_least(70.), Band::ANY),
+                BiomeRule::new(Alpine, Band::at_least(110.), Band::ANY),
                 BiomeRule::new(Marsh, Band::below(3.), Band::below(slope_of_degrees(1.5))),
                 BiomeRule::new(Meadow, Band::ANY, Band::below(slope_of_degrees(2.5))),
             ],
@@ -418,7 +419,7 @@ fn box_mean(values: &[f64], nx: usize, ny: usize, r: usize) -> Vec<f64> {
 mod test {
     use super::Biome::*;
     use super::*;
-    use crate::terrain::Field;
+    use orienteering_field::Field;
 
     /// A map from rows of characters, top row first: `~` water, `m` marsh, `.` meadow,
     /// `f` forest, `#` rock, `^` alpine.
@@ -494,8 +495,14 @@ mod test {
             ..Default::default()
         };
         let rules = BiomeRules::default();
-        assert_eq!(BiomeMap::classify(&grid, &point_slope).get(summit.0, summit.1), Meadow);
-        assert_eq!(BiomeMap::classify(&grid, &rules).get(summit.0, summit.1), Forest);
+        assert_eq!(
+            BiomeMap::classify(&grid, &point_slope).get(summit.0, summit.1),
+            Meadow
+        );
+        assert_eq!(
+            BiomeMap::classify(&grid, &rules).get(summit.0, summit.1),
+            Forest
+        );
         assert_eq!(rules.at(&hill, Point2::origin()), Forest);
     }
 
@@ -510,7 +517,11 @@ mod test {
         );
         let biomes = BiomeMap::classify(&grid, &BiomeRules::default());
         for i in 0..grid.nx {
-            let expected = if grid.point(i, 0).x < 0. { Water } else { Forest };
+            let expected = if grid.point(i, 0).x < 0. {
+                Water
+            } else {
+                Forest
+            };
             assert_eq!(biomes.get(i, 5), expected, "at x = {}", grid.point(i, 0).x);
         }
         assert_eq!(biomes.regions().regions.len(), 2);
@@ -530,7 +541,14 @@ mod test {
         found.sort();
         assert_eq!(
             found,
-            [(Water, 8), (Forest, 1), (Forest, 2), (Forest, 4), (Forest, 4), (Rock, 1)]
+            [
+                (Water, 8),
+                (Forest, 1),
+                (Forest, 2),
+                (Forest, 4),
+                (Forest, 4),
+                (Rock, 1)
+            ]
         );
         assert_eq!(r.labels[0], r.labels[1]); // Bottom-left forest is one region.
     }

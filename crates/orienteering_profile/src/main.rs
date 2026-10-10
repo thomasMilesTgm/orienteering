@@ -1,24 +1,29 @@
 //! Profiles terrain generation and contouring.
 //!
-//! `cargo run --release --features profile --bin profile -- --help` for options.
+//! `cargo run --release -p orienteering_profile -- --help` for options.
 //!
 //! Span timings are inclusive (a span's time includes its children's) and measured from span
 //! creation to close. Spans on worker threads (e.g. `contour::refine`) run concurrently, so their
 //! totals add up time across threads and can exceed their parent's.
 
 use nalgebra::Point2;
-use orienteering::terrain::{rng::Rng64, *};
+use orienteering::{
+    field::Surface,
+    map::{BiomeMap, BiomeRules, HeightGrid, contours, levels, refine_all},
+    math::{Aabb, rng::Rng64},
+    terrain::{Region, TerrainParams, World},
+};
 use std::collections::BTreeMap;
 use std::hint::black_box;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::span::{Attributes, Id};
 use tracing::{Subscriber, info_span};
+use tracing_subscriber::Layer;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::{Context, SubscriberExt};
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::Layer;
 
 struct Args {
     seed: String,

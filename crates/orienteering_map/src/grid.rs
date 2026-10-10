@@ -1,7 +1,8 @@
 //! Sampling a surface on a regular grid.
 
-use super::field::{Aabb, Surface};
 use nalgebra::{Point2, Vector2};
+use orienteering_field::Surface;
+use orienteering_math::Aabb;
 use rayon::prelude::*;
 
 /// Heights, and optionally exact gradients, sampled on a regular grid.
@@ -117,8 +118,8 @@ fn point(origin: Point2<f64>, spacing: f64, i: usize, j: usize) -> Point2<f64> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::terrain::Field;
     use approx::assert_relative_eq;
+    use orienteering_field::Field;
 
     #[test]
     fn exact_and_estimated_gradients_agree() {

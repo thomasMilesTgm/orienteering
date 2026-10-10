@@ -1,7 +1,12 @@
 //! Composable height fields.
+//!
+//! A [`Field`] is a serializable expression tree of terrain primitives (bumps, ridges, scarps,
+//! waves, planes) and combinators (sums, products, scaling, domain warping, and smooth rectangular
+//! [`Window`]s). Fields are evaluated generically over [`Scalar`]: with `f64` for heights, or with
+//! [`Dual`] numbers for exact gradients (see [`Surface`]).
 
-use super::scalar::{Dual, Scalar};
 use nalgebra::{Point2, Vector2};
+use orienteering_math::{Aabb, Dual, Scalar};
 use std::f64::consts::TAU;
 
 /// Anything with a height at every point.
@@ -14,66 +19,6 @@ pub trait Surface {
 
     fn gradient(&self, p: Point2<f64>) -> Vector2<f64> {
         self.height_and_gradient(p).1
-    }
-}
-
-/// An axis-aligned rectangle.
-#[derive(Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Aabb {
-    pub min: Point2<f64>,
-    pub max: Point2<f64>,
-}
-
-impl Aabb {
-    pub fn new(min: Point2<f64>, max: Point2<f64>) -> Self {
-        Self { min, max }
-    }
-
-    pub fn centered(center: Point2<f64>, size: f64) -> Self {
-        let half = Vector2::repeat(size / 2.);
-        Self::new(center - half, center + half)
-    }
-
-    pub fn width(&self) -> f64 {
-        self.max.x - self.min.x
-    }
-
-    pub fn height(&self) -> f64 {
-        self.max.y - self.min.y
-    }
-
-    pub fn center(&self) -> Point2<f64> {
-        nalgebra::center(&self.min, &self.max)
-    }
-
-    pub fn contains(&self, p: Point2<f64>) -> bool {
-        (self.min.x..=self.max.x).contains(&p.x) && (self.min.y..=self.max.y).contains(&p.y)
-    }
-
-    /// Grows the box by `margin` on every side.
-    pub fn grow(&self, margin: f64) -> Self {
-        let m = Vector2::repeat(margin);
-        Self::new(self.min - m, self.max + m)
-    }
-
-    /// The four quadrants, sharing edges exactly so their [`Window`]s partition this one.
-    pub fn quadrants(&self) -> [Self; 4] {
-        let (min, c, max) = (self.min, self.center(), self.max);
-        [
-            Self::new(min, c),
-            Self::new(Point2::new(c.x, min.y), Point2::new(max.x, c.y)),
-            Self::new(Point2::new(min.x, c.y), Point2::new(c.x, max.y)),
-            Self::new(c, max),
-        ]
-    }
-
-    /// A point at fractional position `(u, v)` ∈ [0, 1]² within the box.
-    pub fn lerp(&self, u: f64, v: f64) -> Point2<f64> {
-        Point2::new(
-            self.min.x + u * self.width(),
-            self.min.y + v * self.height(),
-        )
     }
 }
 
@@ -158,6 +103,15 @@ pub enum Field {
         amplitude: f64,
     },
 
+    /// A cliff band or escarpment: a smooth step of total `height` across the line through
+    /// `origin` perpendicular to `normal`, rising towards `normal` over about `width` meters.
+    Scarp {
+        origin: Point2<f64>,
+        normal: Vector2<f64>,
+        width: f64,
+        height: f64,
+    },
+
     /// `field` multiplied by `window`, and skipped entirely outside `support`, where the product
     /// is negligible. Build with [`Field::masked`], which computes the support.
     Masked {
@@ -166,7 +120,18 @@ pub enum Field {
         field: Box<Field>,
     },
 
-    Scaled { factor: f64, field: Box<Field> },
+    /// `field` evaluated at displaced coordinates `p + (dx(p), dy(p))` (domain warping), which
+    /// bends its shapes into irregular, meandering ones.
+    Warped {
+        dx: Box<Field>,
+        dy: Box<Field>,
+        field: Box<Field>,
+    },
+
+    Scaled {
+        factor: f64,
+        field: Box<Field>,
+    },
     Sum(Vec<Field>),
     Product(Vec<Field>),
 }
@@ -202,6 +167,15 @@ impl Field {
         }
     }
 
+    pub fn scarp(origin: Point2<f64>, normal: Vector2<f64>, width: f64, height: f64) -> Self {
+        Self::Scarp {
+            origin,
+            normal: normal.normalize(),
+            width,
+            height,
+        }
+    }
+
     pub fn masked(self, window: Window) -> Self {
         Self::Masked {
             window,
@@ -218,7 +192,8 @@ impl Field {
             Self::Plane { .. } => f64::INFINITY,
             Self::Bump { height, .. } | Self::Ridge { height, .. } => height.abs(),
             Self::Wave { amplitude, .. } => amplitude.abs(),
-            Self::Masked { field, .. } => field.bound(),
+            Self::Scarp { height, .. } => height.abs() / 2.,
+            Self::Masked { field, .. } | Self::Warped { field, .. } => field.bound(),
             Self::Scaled { factor, .. } if *factor == 0. => 0.,
             Self::Scaled { factor, field } => factor.abs() * field.bound(),
             Self::Sum(fields) => fields.iter().map(Self::bound).sum(),
@@ -230,6 +205,14 @@ impl Field {
                     bounds.iter().product()
                 }
             }
+        }
+    }
+
+    pub fn warped(self, dx: Field, dy: Field) -> Self {
+        Self::Warped {
+            dx: Box::new(dx),
+            dy: Box::new(dy),
+            field: Box::new(self),
         }
     }
 
@@ -280,6 +263,15 @@ impl Field {
                     .sin()
                     .scale(*amplitude)
             }
+            Self::Scarp {
+                origin,
+                normal,
+                width,
+                height,
+            } => {
+                let d = x.offset(-origin.x).scale(normal.x) + y.offset(-origin.y).scale(normal.y);
+                d.scale(1. / width).tanh().scale(height / 2.)
+            }
             Self::Masked {
                 window,
                 support,
@@ -290,6 +282,7 @@ impl Field {
                 }
                 window.eval(x, y) * field.eval(x, y)
             }
+            Self::Warped { dx, dy, field } => field.eval(x + dx.eval(x, y), y + dy.eval(x, y)),
             Self::Scaled { factor, field } => field.eval(x, y).scale(*factor),
             Self::Sum(fields) => fields
                 .iter()
@@ -347,8 +340,7 @@ impl std::ops::Mul<f64> for Field {
 }
 
 /// Central finite-difference gradient, for testing analytic gradients against.
-#[cfg(test)]
-pub(crate) fn numeric_gradient<S: Surface>(s: &S, p: Point2<f64>, h: f64) -> Vector2<f64> {
+pub fn numeric_gradient<S: Surface>(s: &S, p: Point2<f64>, h: f64) -> Vector2<f64> {
     let dx = Vector2::new(h, 0.);
     let dy = Vector2::new(0., h);
     Vector2::new(
@@ -376,9 +368,20 @@ mod test {
             + Field::ridge(Point2::new(0., 50.), Vector2::new(1., 2.), 30., -12.)
             + Field::wave(Vector2::new(3., -1.), 170., 0.4, 6.))
             * Field::wave(Vector2::new(-1., 1.), 400., 1.1, 1.)
-            + Field::plane(Point2::origin(), Vector2::new(0.02, -0.01)).masked(w) * 3.;
+            + Field::plane(Point2::origin(), Vector2::new(0.02, -0.01)).masked(w) * 3.
+            + Field::scarp(Point2::new(-20., 40.), Vector2::new(-2., 1.), 12., 9.)
+            + Field::bump(Point2::new(-30., 10.), 50., 8.).warped(
+                Field::wave(Vector2::new(1., 2.), 120., 0.3, 15.),
+                Field::wave(Vector2::new(-2., 1.), 150., 1.9, 15.),
+            );
 
-        for &(x, y) in &[(0., 0.), (35., -12.), (-190., 260.), (240., -140.), (90., 90.)] {
+        for &(x, y) in &[
+            (0., 0.),
+            (35., -12.),
+            (-190., 260.),
+            (240., -140.),
+            (90., 90.),
+        ] {
             let p = Point2::new(x, y);
             let (h, g) = field.height_and_gradient(p);
             assert_relative_eq!(h, field.height(p), epsilon = 1e-12);
@@ -398,7 +401,13 @@ mod test {
             .collect();
         let whole = window((-300., -300.), (300., 300.), blend);
 
-        for &(x, y) in &[(0., 0.), (150., 1.), (-299., 37.), (12., -150.5), (-75., 75.)] {
+        for &(x, y) in &[
+            (0., 0.),
+            (150., 1.),
+            (-299., 37.),
+            (12., -150.5),
+            (-75., 75.),
+        ] {
             let sum: f64 = tiles.iter().map(|w| w.eval(x, y)).sum();
             assert_relative_eq!(sum, whole.eval(x, y), epsilon = 1e-12);
         }
@@ -417,7 +426,11 @@ mod test {
             assert!(support.contains(edge));
             // Large bounds hit the cutoff cap, which allows a proportionally larger error.
             let allowed = WINDOW_TOLERANCE.max(height * (-2. * WINDOW_CUTOFF).exp());
-            assert!(f.height(edge).abs() <= allowed, "{height}: {}", f.height(edge));
+            assert!(
+                f.height(edge).abs() <= allowed,
+                "{height}: {}",
+                f.height(edge)
+            );
             assert_eq!(f.height(edge + Vector2::new(1e-6, 0.)), 0.);
         }
     }

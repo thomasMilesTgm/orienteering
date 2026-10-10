@@ -1,15 +1,42 @@
 [package]
 name = "orienteering"
-version = "0.1.0"
-edition = "2024"
+description = "Procedural orienteering terrain: generated landscapes, their contour maps and biomes."
+version.workspace = true
+edition.workspace = true
 
 [features]
 default = ["serde"]
-serde = ["dep:serde", "nalgebra/serde-serialize"]
-# Dependencies of the `profile` binary.
-profile = ["dep:tracing-subscriber", "dep:tracing-chrome"]
+serde = ["orienteering_internal/serde"]
 
 [dependencies]
+orienteering_internal = { path = "crates/orienteering_internal", version = "0.1.0" }
+
+[dev-dependencies]
+image.workspace = true
+nalgebra.workspace = true
+
+[workspace]
+members = ["crates/*"]
+# Everything but the viewer, so plain `cargo build` and `cargo test` don't build Bevy.
+default-members = [
+  ".",
+  "crates/orienteering_field",
+  "crates/orienteering_flat",
+  "crates/orienteering_internal",
+  "crates/orienteering_map",
+  "crates/orienteering_math",
+  "crates/orienteering_profile",
+  "crates/orienteering_prototype",
+  "crates/orienteering_terrain",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+approx = "0.5.1"
+bevy = "0.20.0"
 derive_more = { version = "2.0.1", features = [
   "add",
   "as_ref",
@@ -19,21 +46,20 @@ derive_more = { version = "2.0.1", features = [
   "mul",
 ] }
 enum_dispatch = "0.3.13"
+image = "0.25.6"
 nalgebra = "0.33.2"
 ordered-float = { version = "5.0.0", features = ["serde"] }
 rand = { version = "0.9.1", features = ["small_rng", "std_rng"] }
-serde = { version = "1.0.219", features = ["derive"], optional = true }
-strum = { version = "0.27.1", features = ["derive"] }
 rayon = "1.12.0"
+serde = { version = "1.0.219", features = ["derive"] }
+strum = { version = "0.27.1", features = ["derive"] }
 tracing = "0.1.44"
-tracing-chrome = { version = "0.7.2", optional = true }
-tracing-subscriber = { version = "0.3.23", optional = true }
+tracing-chrome = "0.7.2"
+tracing-subscriber = "0.3.23"
 
-[[bin]]
-name = "profile"
-required-features = ["profile"]
-
-[dev-dependencies]
-approx = "0.5.1"
-bevy = { version = "0.20.0", features = ["dynamic_linking"] }
-image = "0.25.6"
+orienteering = { path = ".", version = "0.1.0" }
+orienteering_field = { path = "crates/orienteering_field", version = "0.1.0" }
+orienteering_flat = { path = "crates/orienteering_flat", version = "0.1.0" }
+orienteering_map = { path = "crates/orienteering_map", version = "0.1.0" }
+orienteering_math = { path = "crates/orienteering_math", version = "0.1.0" }
+orienteering_terrain = { path = "crates/orienteering_terrain", version = "0.1.0" }

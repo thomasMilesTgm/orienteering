@@ -1,0 +1,11 @@
+[package]
+name = "orienteering_flat"
+description = "Height fields flattened into arrays for evaluation on the GPU."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+nalgebra.workspace = true
+orienteering_field.workspace = true
+orienteering_math.workspace = true
+orienteering_terrain.workspace = true

@@ -4575,20 +4575,109 @@ dependencies = [
 name = "orienteering"
 version = "0.1.0"
 dependencies = [
- "approx",
- "bevy",
- "derive_more",
- "enum_dispatch",
  "image",
  "nalgebra",
- "ordered-float",
- "rand 0.9.1",
+ "orienteering_internal",
+]
+
+[[package]]
+name = "orienteering_field"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "nalgebra",
+ "orienteering_math",
+ "serde",
+]
+
+[[package]]
+name = "orienteering_flat"
+version = "0.1.0"
+dependencies = [
+ "nalgebra",
+ "orienteering_field",
+ "orienteering_math",
+ "orienteering_terrain",
+]
+
+[[package]]
+name = "orienteering_internal"
+version = "0.1.0"
+dependencies = [
+ "orienteering_field",
+ "orienteering_flat",
+ "orienteering_map",
+ "orienteering_math",
+ "orienteering_terrain",
+]
+
+[[package]]
+name = "orienteering_map"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "nalgebra",
+ "orienteering_field",
+ "orienteering_math",
  "rayon",
  "serde",
- "strum",
+ "tracing",
+]
+
+[[package]]
+name = "orienteering_math"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "nalgebra",
+ "serde",
+]
+
+[[package]]
+name = "orienteering_profile"
+version = "0.1.0"
+dependencies = [
+ "nalgebra",
+ "orienteering",
  "tracing",
  "tracing-chrome",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "orienteering_prototype"
+version = "0.1.0"
+dependencies = [
+ "derive_more",
+ "enum_dispatch",
+ "nalgebra",
+ "ordered-float",
+ "rand 0.9.1",
+ "serde",
+ "strum",
+]
+
+[[package]]
+name = "orienteering_terrain"
+version = "0.1.0"
+dependencies = [
+ "approx",
+ "nalgebra",
+ "orienteering_field",
+ "orienteering_math",
+ "rayon",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "orienteering_viewer"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "nalgebra",
+ "orienteering",
+ "rayon",
 ]
 
 [[package]]

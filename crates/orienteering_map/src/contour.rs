@@ -1,8 +1,8 @@
 //! Extracting contour lines (level sets of the height field) with marching squares.
 
-use super::field::Surface;
-use super::grid::HeightGrid;
+use crate::grid::HeightGrid;
 use nalgebra::Point2;
+use orienteering_field::Surface;
 use rayon::prelude::*;
 use std::collections::HashMap;
 
@@ -206,9 +206,10 @@ fn segments(grid: &HeightGrid, level: f64) -> Vec<(Edge, Edge)> {
 
 #[cfg(test)]
 mod test {
-    use super::super::field::{Aabb, Field};
     use super::*;
     use approx::assert_relative_eq;
+    use orienteering_field::Field;
+    use orienteering_math::Aabb;
 
     #[test]
     fn hill_gives_closed_circular_contours() {

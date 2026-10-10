@@ -1,0 +1,12 @@
+[package]
+name = "orienteering_viewer"
+description = "Interactive visualization of terrain generation, built with Bevy."
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = ["dynamic_linking"] }
+nalgebra.workspace = true
+orienteering.workspace = true
+rayon.workspace = true

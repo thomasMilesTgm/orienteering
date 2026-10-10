@@ -1,0 +1,20 @@
+[package]
+name = "orienteering_internal"
+description = "Re-exports the orienteering crates. Use them through the `orienteering` facade."
+version.workspace = true
+edition.workspace = true
+
+[features]
+serde = [
+  "orienteering_math/serde",
+  "orienteering_field/serde",
+  "orienteering_terrain/serde",
+  "orienteering_map/serde",
+]
+
+[dependencies]
+orienteering_field.workspace = true
+orienteering_flat.workspace = true
+orienteering_map.workspace = true
+orienteering_math.workspace = true
+orienteering_terrain.workspace = true

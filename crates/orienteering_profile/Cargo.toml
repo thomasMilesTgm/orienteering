@@ -1,0 +1,13 @@
+[package]
+name = "orienteering_profile"
+description = "Profiles terrain generation and mapping."
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+nalgebra.workspace = true
+orienteering.workspace = true
+tracing.workspace = true
+tracing-chrome.workspace = true
+tracing-subscriber.workspace = true

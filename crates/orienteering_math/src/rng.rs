@@ -34,6 +34,18 @@ impl Rng64 {
         self.unit() < p
     }
 
+    /// An index into `weights`, chosen with probability proportional to its weight.
+    pub fn pick(&mut self, weights: &[f64]) -> usize {
+        let mut r = self.unit() * weights.iter().sum::<f64>();
+        for (i, w) in weights.iter().enumerate() {
+            if r < *w {
+                return i;
+            }
+            r -= w;
+        }
+        weights.len() - 1
+    }
+
     /// Either 1 or -1.
     pub fn sign(&mut self) -> f64 {
         if self.chance(0.5) { 1. } else { -1. }

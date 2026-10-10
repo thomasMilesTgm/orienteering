@@ -1,4 +1,4 @@
-//! Number types a [`Field`](super::Field) can be evaluated with.
+//! Number types height fields can be evaluated with.
 //!
 //! Fields are written once, generically over [`Scalar`]. Evaluating with `f64` gives the height;
 //! evaluating with [`Dual`] gives the height *and* its exact gradient (forward-mode automatic
@@ -25,9 +25,13 @@ pub trait Scalar:
     fn exp(self) -> Self;
     fn tanh(self) -> Self;
 
+    #[inline]
+
     fn scale(self, k: f64) -> Self {
         self * Self::constant(k)
     }
+
+    #[inline]
 
     fn offset(self, c: f64) -> Self {
         self + Self::constant(c)
@@ -35,21 +39,27 @@ pub trait Scalar:
 }
 
 impl Scalar for f64 {
+    #[inline]
     fn constant(c: f64) -> Self {
         c
     }
+    #[inline]
     fn value(self) -> f64 {
         self
     }
+    #[inline]
     fn sin(self) -> Self {
         f64::sin(self)
     }
+    #[inline]
     fn cos(self) -> Self {
         f64::cos(self)
     }
+    #[inline]
     fn exp(self) -> Self {
         f64::exp(self)
     }
+    #[inline]
     fn tanh(self) -> Self {
         f64::tanh(self)
     }
@@ -63,11 +73,13 @@ pub struct Dual {
 }
 
 impl Dual {
+    #[inline]
     pub fn new(v: f64, d: Vector2<f64>) -> Self {
         Self { v, d }
     }
 
     /// Seeds for evaluating a field at `(x, y)`: `x` varies along x, `y` along y.
+    #[inline]
     pub fn variables(x: f64, y: f64) -> (Self, Self) {
         (
             Self::new(x, Vector2::new(1., 0.)),
@@ -76,6 +88,7 @@ impl Dual {
     }
 
     /// Applies a unary function `f` whose derivative at `self.v` is `df`.
+    #[inline]
     fn map(self, f: f64, df: f64) -> Self {
         Self::new(f, self.d * df)
     }
@@ -83,6 +96,7 @@ impl Dual {
 
 impl Add for Dual {
     type Output = Self;
+    #[inline]
     fn add(self, rhs: Self) -> Self {
         Self::new(self.v + rhs.v, self.d + rhs.d)
     }
@@ -90,6 +104,7 @@ impl Add for Dual {
 
 impl Sub for Dual {
     type Output = Self;
+    #[inline]
     fn sub(self, rhs: Self) -> Self {
         Self::new(self.v - rhs.v, self.d - rhs.d)
     }
@@ -97,6 +112,7 @@ impl Sub for Dual {
 
 impl Mul for Dual {
     type Output = Self;
+    #[inline]
     fn mul(self, rhs: Self) -> Self {
         Self::new(self.v * rhs.v, self.d * rhs.v + rhs.d * self.v)
     }
@@ -104,6 +120,7 @@ impl Mul for Dual {
 
 impl Div for Dual {
     type Output = Self;
+    #[inline]
     fn div(self, rhs: Self) -> Self {
         let v = self.v / rhs.v;
         Self::new(v, (self.d - rhs.d * v) / rhs.v)
@@ -112,28 +129,35 @@ impl Div for Dual {
 
 impl Neg for Dual {
     type Output = Self;
+    #[inline]
     fn neg(self) -> Self {
         Self::new(-self.v, -self.d)
     }
 }
 
 impl Scalar for Dual {
+    #[inline]
     fn constant(c: f64) -> Self {
         Self::new(c, Vector2::zeros())
     }
+    #[inline]
     fn value(self) -> f64 {
         self.v
     }
+    #[inline]
     fn sin(self) -> Self {
         self.map(self.v.sin(), self.v.cos())
     }
+    #[inline]
     fn cos(self) -> Self {
         self.map(self.v.cos(), -self.v.sin())
     }
+    #[inline]
     fn exp(self) -> Self {
         let e = self.v.exp();
         self.map(e, e)
     }
+    #[inline]
     fn tanh(self) -> Self {
         let t = self.v.tanh();
         self.map(t, 1. - t * t)
