@@ -11,6 +11,14 @@ pub(crate) fn inspect(
     mut info: Single<&mut Text, With<InfoText>>,
     mut gizmos: Gizmos,
 ) {
+    if controls.three_d {
+        info.0 = format!(
+            "{}\n\n3D view\n  left-drag orbit | right-drag pan | scroll distance\n  \
+             E exaggeration | 3 back to 2D\n  (hover inspection is in 2D)",
+            step_name(controls.stage.ceil() as u32).to_uppercase()
+        );
+        return;
+    }
     let mut out = format!(
         "{}\n{}\n",
         step_name(controls.stage.ceil() as u32).to_uppercase(),
@@ -335,7 +343,9 @@ pub(crate) fn draw_plates(
     shown: Option<Res<Shown>>,
     mut gizmos: Gizmos,
 ) {
-    let Some(shown) = shown.filter(|_| controls.plates || controls.stage < 1.) else {
+    let Some(shown) =
+        shown.filter(|_| !controls.three_d && (controls.plates || controls.stage < 1.))
+    else {
         return;
     };
     let size = shown.world.params.tectonics.plate_size;

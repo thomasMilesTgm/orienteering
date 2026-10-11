@@ -187,7 +187,11 @@ pub(crate) fn update_gpu_map(
     mut rerun_until: Local<f32>,
 ) {
     let mut camera = camera.into_inner();
-    let Some(scene) = gpu.scene.as_ref().filter(|_| controls.gpu) else {
+    let Some(scene) = gpu
+        .scene
+        .as_ref()
+        .filter(|_| controls.gpu && !controls.three_d)
+    else {
         camera.is_active = false;
         return;
     };
@@ -290,7 +294,7 @@ pub(crate) fn place_gpu_map(
     field: Single<&mut Transform, (With<FieldQuad>, Without<GpuQuad>)>,
 ) {
     let (mut transform, mut visibility) = style.into_inner();
-    *visibility = if controls.gpu && gpu.scene.is_some() {
+    *visibility = if controls.gpu && !controls.three_d && gpu.scene.is_some() {
         Visibility::Visible
     } else {
         Visibility::Hidden

@@ -13,6 +13,8 @@ pub(crate) struct Job {
     pub(crate) size: (f64, f64),
     /// Flatten a scene for the GPU rather than render an image.
     pub(crate) gpu: bool,
+    /// Build a draped terrain mesh for the 3D view instead.
+    pub(crate) three_d: bool,
 }
 
 impl Job {
@@ -23,6 +25,12 @@ impl Job {
     pub(crate) fn area(&self) -> Aabb {
         let half = Vector2::new(self.size.0, self.size.1) * self.view.m_per_px / 2.;
         Aabb::new(self.view.center - half, self.view.center + half)
+    }
+
+    /// For 3D: a square around the view, as wide as the view's longer side.
+    pub(crate) fn square(&self) -> Aabb {
+        let side = self.size.0.max(self.size.1) * self.view.m_per_px;
+        Aabb::centered(self.view.center, side)
     }
 
     /// For the GPU: the view plus a margin, so panning a little needs no new scene.
@@ -49,6 +57,7 @@ pub(crate) struct Done {
 pub(crate) enum Output {
     Image { rgba: Vec<u8>, texels: UVec2 },
     Scene(FlatScene),
+    Terrain(TerrainMesh),
 }
 
 #[derive(Default)]
@@ -127,7 +136,13 @@ impl Cache {
         }
         let world = self.world.clone().unwrap();
         let p = &world.params;
-        let area = if job.gpu { job.covered() } else { job.area() };
+        let area = if job.three_d {
+            job.square()
+        } else if job.gpu {
+            job.covered()
+        } else {
+            job.area()
+        };
 
         // Forget what's far away, so wandering doesn't grow the cache without bound.
         if self.chunks.len() > 4000 {
@@ -212,7 +227,24 @@ impl Cache {
             .map(|i| (*i, self.plates[i].clone()))
             .collect();
 
-        let output = if job.gpu {
+        let staged = |stage: f64| {
+            let lo = stage.floor().clamp(0., steps() as f64) as u32;
+            Staged {
+                baseline: p.mean_elevation,
+                plates: &plate_fields,
+                provinces: &province_fields,
+                chunks: &chunks,
+                lo,
+                hi: (lo + 1).min(steps()),
+                t: stage - lo as f64,
+                chunk_size: p.chunk_size,
+                province_size: p.province_size,
+                plate_size,
+            }
+        };
+        let output = if job.three_d {
+            Output::Terrain(TerrainMesh::build(&staged(job.stage), area))
+        } else if job.gpu {
             let mut scene = FlatScene::new(
                 chunks.iter().map(|(i, c)| (*i, c.flat.clone())),
                 p.chunk_size,
@@ -226,19 +258,7 @@ impl Cache {
             scene.baseline = p.mean_elevation as f32;
             Output::Scene(scene)
         } else {
-            let lo = job.stage.floor().clamp(0., steps() as f64) as u32;
-            let surface = Staged {
-                baseline: p.mean_elevation,
-                plates: &plate_fields,
-                provinces: &province_fields,
-                chunks: &chunks,
-                lo,
-                hi: (lo + 1).min(steps()),
-                t: job.stage - lo as f64,
-                chunk_size: p.chunk_size,
-                province_size: p.province_size,
-                plate_size,
-            };
+            let surface = staged(job.stage);
             let map = raster::render(&surface, area, job.spacing(), &map_style(job.view.m_per_px));
             Output::Image {
                 rgba: map
@@ -397,10 +417,16 @@ pub(crate) fn request_render(
         view: *view,
         texel: if settled { 1. } else { 2. },
         size,
-        gpu: controls.gpu,
+        gpu: controls.gpu && !controls.three_d,
+        three_d: controls.three_d,
     };
 
-    if controls.gpu {
+    if controls.three_d {
+        job.texel = 1.;
+        if sent.as_ref() == Some(&job) {
+            return;
+        }
+    } else if controls.gpu {
         // The stage and small pans are just uniforms; only ask for a new scene when the view
         // leaves the generated area (or the seed changes).
         job.stage = 0.;
@@ -410,9 +436,9 @@ pub(crate) fn request_render(
             .scene
             .as_ref()
             .is_some_and(|s| s.seed == job.seed && contains(&s.covered, &area));
-        let coming = sent
-            .as_ref()
-            .is_some_and(|s| s.gpu && s.seed == job.seed && contains(&s.covered(), &area));
+        let coming = sent.as_ref().is_some_and(|s| {
+            s.gpu && !s.three_d && s.seed == job.seed && contains(&s.covered(), &area)
+        });
         if have || coming {
             return;
         }
@@ -423,6 +449,7 @@ pub(crate) fn request_render(
     *sent = Some(job);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn receive_render(
     mut commands: Commands,
     worker: Res<Worker>,
@@ -430,6 +457,9 @@ pub(crate) fn receive_render(
     mut images: ResMut<Assets<Image>>,
     mut gpu: ResMut<GpuMap>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut terrain: ResMut<Terrain3d>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     let Some(done) = worker.take() else {
         return;
@@ -454,6 +484,9 @@ pub(crate) fn receive_render(
                 texels,
                 millis: done.millis,
             });
+        }
+        Output::Terrain(mesh) => {
+            terrain.show(mesh, &done.job, &mut meshes, &mut images, &mut materials);
         }
         Output::Scene(scene) => {
             let mut cells = scene.chunks.ranges.clone();
@@ -516,7 +549,7 @@ pub(crate) fn place_cpu_map(
     sprite: Single<(&mut Sprite, &mut Transform, &mut Visibility), With<MapSprite>>,
 ) {
     let (mut sprite, mut transform, mut visibility) = sprite.into_inner();
-    let Some(cpu) = cpu.filter(|_| !controls.gpu) else {
+    let Some(cpu) = cpu.filter(|_| !controls.gpu && !controls.three_d) else {
         *visibility = Visibility::Hidden;
         return;
     };

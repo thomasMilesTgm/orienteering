@@ -66,6 +66,7 @@ pub(crate) fn step_keys(
     mut controls: ResMut<Controls>,
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
+    mut orbit: ResMut<Orbit>,
 ) {
     let last = steps() as f64;
     if controls.draft.is_none() {
@@ -82,6 +83,12 @@ pub(crate) fn step_keys(
         }
         if keys.just_pressed(KeyCode::KeyT) {
             controls.plates = !controls.plates;
+        }
+        if keys.just_pressed(KeyCode::Digit3) {
+            controls.three_d = !controls.three_d;
+        }
+        if keys.just_pressed(KeyCode::KeyE) {
+            orbit.exaggeration += 1;
         }
         if keys.just_pressed(KeyCode::Space) {
             controls.playing = !controls.playing;
@@ -106,6 +113,10 @@ pub(crate) fn pan_and_zoom(
     panels: Query<&RelativeCursorPosition, With<Panel>>,
     time: Res<Time>,
 ) {
+    if controls.three_d {
+        wheel.clear();
+        return;
+    }
     let Some(cursor) = window.cursor_position() else {
         wheel.clear();
         return;

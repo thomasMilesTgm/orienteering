@@ -209,7 +209,9 @@ pub(crate) fn place_label_text(
     mut labels: Query<(&LabelText, &mut Transform, &mut Visibility)>,
 ) {
     for (label, mut transform, mut visibility) in &mut labels {
-        let current = label.key.seed == controls.seed && label.key.stage == controls.stage;
+        let current = label.key.seed == controls.seed
+            && label.key.stage == controls.stage
+            && !controls.three_d;
         *visibility = if current {
             Visibility::Visible
         } else {

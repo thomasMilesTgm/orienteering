@@ -152,7 +152,7 @@ pub(crate) fn setup_ui(mut commands: Commands) {
             panel.spawn((
                 Text::new(
                     "Left/Right step | Space play | scroll zoom | drag pan | hover to inspect | \
-                     G GPU/CPU | T plates",
+                     G GPU/CPU | T plates | 3 3D view",
                 ),
                 text(12., DIM),
             ));

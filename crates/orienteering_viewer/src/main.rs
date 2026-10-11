@@ -38,7 +38,7 @@ use bevy::{
     },
     shader::ShaderRef,
     sprite_render::{Material2d, Material2dPlugin},
-    ui::RelativeCursorPosition,
+    ui::{IsDefaultUiCamera, RelativeCursorPosition},
     window::PrimaryWindow,
 };
 use nalgebra::{Point2, Vector2};
@@ -66,6 +66,7 @@ mod input;
 mod inspect;
 mod labels;
 mod ui;
+mod view3d;
 mod worker;
 
 use gpu::*;
@@ -73,6 +74,7 @@ use input::*;
 use inspect::*;
 use labels::*;
 use ui::*;
+use view3d::*;
 use worker::*;
 
 const DEFAULT_SEED: &str = "misty hollow";
@@ -137,36 +139,58 @@ fn main() {
         .insert_resource(View { center, m_per_px })
         .insert_resource(Worker::spawn())
         .insert_resource(Labeler::spawn())
-        .add_systems(Startup, (setup_camera, setup_gpu, setup_cpu_map, setup_ui))
+        .init_resource::<Orbit>()
+        .add_systems(
+            Startup,
+            (setup_camera, setup_gpu, setup_cpu_map, setup_3d, setup_ui),
+        )
         .add_systems(
             Update,
             (
-                edit_seed,
-                drag_slider,
-                step_keys,
-                pan_and_zoom,
-                request_render,
-                receive_render,
-                update_gpu_map,
-                place_gpu_map,
-                place_cpu_map,
-                inspect,
-                draw_plates,
-                update_seed_ui,
-                update_slider_ui,
-                update_status_ui,
-                request_labels,
-                receive_labels,
-                place_label_text,
-                fit_label_backing,
+                (
+                    edit_seed,
+                    drag_slider,
+                    step_keys,
+                    pan_and_zoom,
+                    orbit_controls,
+                    request_render,
+                    receive_render,
+                    update_gpu_map,
+                    place_gpu_map,
+                    place_cpu_map,
+                    switch_views,
+                    place_3d,
+                )
+                    .chain(),
+                (
+                    inspect,
+                    draw_plates,
+                    update_seed_ui,
+                    update_slider_ui,
+                    update_status_ui,
+                    request_labels,
+                    receive_labels,
+                    place_label_text,
+                    fit_label_backing,
+                )
+                    .chain(),
             )
                 .chain(),
         )
         .run();
 }
 
+/// The 2D camera: the map in 2D, and the UI over both views.
 fn setup_camera(mut commands: Commands) {
-    commands.spawn(Camera2d);
+    commands.spawn((
+        Camera2d,
+        Camera {
+            order: 1,
+            ..default()
+        },
+        IsDefaultUiCamera,
+        Camera2dView,
+    ));
 }
 
 /// The last step: tectonics, provinces, landforms, then each level of detail.
@@ -228,6 +252,8 @@ pub(crate) struct Controls {
     pub(crate) gpu: bool,
     /// Overlay plate boundaries and motion (always shown for the first two steps).
     pub(crate) plates: bool,
+    /// Show the 3D view.
+    pub(crate) three_d: bool,
 }
 
 #[derive(Resource, Clone, Copy, PartialEq, Debug)]
