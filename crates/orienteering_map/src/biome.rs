@@ -125,15 +125,15 @@ pub struct BiomeRules {
 
 impl Default for BiomeRules {
     /// Rules suited to the relief produced by the default terrain parameters: smooth lowlands
-    /// sink into basins below the water line, and only the highest, most rugged ground rises above
-    /// the 110 m tree line.
+    /// sink into basins below the water line, and only the high mountain ranges rise above the
+    /// 280 m tree line.
     fn default() -> Self {
         use Biome::*;
         Self {
             rules: vec![
                 BiomeRule::new(Water, Band::below(0.), Band::ANY),
                 BiomeRule::new(Rock, Band::ANY, Band::at_least(slope_of_degrees(17.))),
-                BiomeRule::new(Alpine, Band::at_least(110.), Band::ANY),
+                BiomeRule::new(Alpine, Band::at_least(280.), Band::ANY),
                 BiomeRule::new(Marsh, Band::below(3.), Band::below(slope_of_degrees(1.5))),
                 BiomeRule::new(Meadow, Band::ANY, Band::below(slope_of_degrees(2.5))),
             ],
@@ -455,7 +455,8 @@ mod test {
         assert_eq!(rules.classify(-1., 2.), Water);
         assert_eq!(rules.classify(40., 2.), Rock);
         assert_eq!(rules.classify(200., 2.), Rock);
-        assert_eq!(rules.classify(200., 0.1), Alpine);
+        assert_eq!(rules.classify(200., 0.1), Forest);
+        assert_eq!(rules.classify(400., 0.1), Alpine);
         assert_eq!(rules.classify(1., 0.), Marsh);
         assert_eq!(rules.classify(20., 0.), Meadow);
         assert_eq!(rules.classify(20., 0.2), Forest);

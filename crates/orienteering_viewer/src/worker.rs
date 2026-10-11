@@ -41,6 +41,7 @@ pub(crate) struct Done {
     pub(crate) world: terrain::World,
     pub(crate) chunks: HashMap<CellIndex, Arc<Levels>>,
     pub(crate) provinces: Arc<HashMap<CellIndex, Province>>,
+    pub(crate) plates: Arc<HashMap<CellIndex, Plate>>,
     pub(crate) output: Output,
     pub(crate) millis: f64,
 }
@@ -104,7 +105,10 @@ pub(crate) struct Levels {
 pub(crate) struct Cache {
     pub(crate) seed: String,
     pub(crate) world: Option<terrain::World>,
-    pub(crate) provinces: HashMap<CellIndex, (Province, FlatCell)>,
+    pub(crate) provinces: HashMap<CellIndex, Province>,
+    pub(crate) province_flats: HashMap<CellIndex, FlatCell>,
+    pub(crate) plates: HashMap<CellIndex, Plate>,
+    pub(crate) plate_flats: HashMap<CellIndex, FlatCell>,
     pub(crate) chunks: HashMap<CellIndex, Arc<Levels>>,
 }
 
@@ -132,31 +136,56 @@ impl Cache {
                 .retain(|i, _| keep.contains(i.bounds(p.chunk_size).center()));
         }
 
-        let provinces: Vec<_> = CellIndex::covering(area, p.province_size, 2).collect();
+        // Plates and provinces, covering the chunks' own generation contexts too. Provinces fade in
+        // over the first step; plates are always there.
+        let context = area.grow(2. * p.chunk_size);
+        let plate_size = p.tectonics.plate_size;
+        let plates: Vec<_> = CellIndex::covering(context, plate_size, PLATE_REACH).collect();
+        for &i in &plates {
+            if !self.plates.contains_key(&i) {
+                let plate = world.plate(i);
+                let origin = i.bounds(plate_size).min;
+                let flat = FlatCell::new(&plate.elevation, origin, |_| ALWAYS);
+                self.plate_flats.insert(i, flat.expect("plates flatten"));
+                self.plates.insert(i, plate);
+            }
+        }
+        let provinces: Vec<_> =
+            CellIndex::covering(context, p.province_size, PROVINCE_REACH).collect();
         for &i in &provinces {
-            self.provinces.entry(i).or_insert_with(|| {
+            if !self.provinces.contains_key(&i) {
                 let province = world.province(i);
                 let origin = i.bounds(p.province_size).min;
-                let flat = FlatCell::new(&province.elevation, origin, |_| ALWAYS);
-                (province, flat.expect("provinces flatten"))
-            });
+                let flat = FlatCell::new(&province.elevation, origin, |_| 0.);
+                self.province_flats
+                    .insert(i, flat.expect("provinces flatten"));
+                self.provinces.insert(i, province);
+            }
         }
-        let needed: Vec<_> = CellIndex::covering(area, p.chunk_size, 1).collect();
+
+        // Zoomed far out, chunks' detail would be invisible, and there would be far too many.
+        let needed: Vec<_> = if job.view.m_per_px <= DETAIL_LIMIT {
+            CellIndex::covering(area, p.chunk_size, 1).collect()
+        } else {
+            vec![]
+        };
         let missing: Vec<_> = needed
             .iter()
             .filter(|i| !self.chunks.contains_key(i))
             .copied()
             .collect();
+        let (cached_provinces, cached_plates) = (&self.provinces, &self.plates);
         let generated: Vec<_> = missing
             .par_iter()
             .map(|&i| {
-                let traced = world.chunk_traced(i);
+                let traced = world.chunk_traced_in(i, cached_provinces, cached_plates);
                 let fields = (0..=traced.chunk.depth)
                     .map(|d| traced.field_to_depth(d))
                     .collect();
-                // The root is a window-less node holding the landform level's window.
+                // The root is a window-less node holding the landform level's window; the
+                // landforms (depth 0) fade in over step 2, each finer depth over the next.
                 let origin = i.bounds(p.chunk_size).min;
-                let flat = FlatCell::new(&traced.chunk.field, origin, |n| n as f32 - 1.)
+                let flat = FlatCell::new(&traced.chunk.field, origin, |n| n as f32)
                     .expect("generated chunks flatten");
                 (
                     i,
@@ -176,19 +205,31 @@ impl Cache {
             .collect();
         let province_fields: HashMap<_, _> = provinces
             .iter()
-            .map(|i| (*i, self.provinces[i].0.clone()))
+            .map(|i| (*i, self.provinces[i].clone()))
+            .collect();
+        let plate_fields: HashMap<_, _> = plates
+            .iter()
+            .map(|i| (*i, self.plates[i].clone()))
             .collect();
 
         let output = if job.gpu {
-            Output::Scene(FlatScene::new(
+            let mut scene = FlatScene::new(
                 chunks.iter().map(|(i, c)| (*i, c.flat.clone())),
                 p.chunk_size,
-                provinces.iter().map(|i| (*i, self.provinces[i].1.clone())),
+                provinces
+                    .iter()
+                    .map(|i| (*i, self.province_flats[i].clone())),
                 p.province_size,
-            ))
+                plates.iter().map(|i| (*i, self.plate_flats[i].clone())),
+                plate_size,
+            );
+            scene.baseline = p.mean_elevation as f32;
+            Output::Scene(scene)
         } else {
             let lo = job.stage.floor().clamp(0., steps() as f64) as u32;
             let surface = Staged {
+                baseline: p.mean_elevation,
+                plates: &plate_fields,
                 provinces: &province_fields,
                 chunks: &chunks,
                 lo,
@@ -196,13 +237,9 @@ impl Cache {
                 t: job.stage - lo as f64,
                 chunk_size: p.chunk_size,
                 province_size: p.province_size,
+                plate_size,
             };
-            let map = raster::render(
-                &surface,
-                area,
-                job.spacing(),
-                &MapStyle::for_scale(job.view.m_per_px),
-            );
+            let map = raster::render(&surface, area, job.spacing(), &map_style(job.view.m_per_px));
             Output::Image {
                 rgba: map
                     .pixels
@@ -217,6 +254,7 @@ impl Cache {
             world,
             chunks,
             provinces: Arc::new(province_fields),
+            plates: Arc::new(plate_fields),
             output,
             millis: start.elapsed().as_secs_f64() * 1e3,
             job,
@@ -224,8 +262,11 @@ impl Cache {
     }
 }
 
-/// The terrain partway through generation: step `lo` cross-faded into step `hi` by `t`.
+/// The terrain partway through generation: step `lo` cross-faded into step `hi` by `t`. Plates
+/// are always present, provinces fade in over step 1, chunks' depth `d` over step `d + 2`.
 pub(crate) struct Staged<'a> {
+    pub(crate) baseline: f64,
+    pub(crate) plates: &'a HashMap<CellIndex, Plate>,
     pub(crate) provinces: &'a HashMap<CellIndex, Province>,
     pub(crate) chunks: &'a HashMap<CellIndex, Arc<Levels>>,
     pub(crate) lo: u32,
@@ -233,31 +274,38 @@ pub(crate) struct Staged<'a> {
     pub(crate) t: f64,
     pub(crate) chunk_size: f64,
     pub(crate) province_size: f64,
+    pub(crate) plate_size: f64,
 }
 
 impl Staged<'_> {
-    /// Sums `eval` over the provinces, and over the chunks at steps `lo` and `hi` weighted by
-    /// `1 - t` and `t`.
+    /// Sums `eval` over the plates, the provinces as far as they've faded in, and the chunks at
+    /// steps `lo` and `hi` weighted by `1 - t` and `t`.
     pub(crate) fn sum<T: Copy + std::ops::Add<Output = T> + std::ops::Mul<f64, Output = T>>(
         &self,
         p: Point2<f64>,
         zero: T,
         eval: impl Fn(&Field) -> T,
     ) -> T {
-        let mut total = CellIndex::containing(p, self.province_size)
-            .within(2)
+        let plates = CellIndex::containing(p, self.plate_size)
+            .within(PLATE_REACH)
+            .filter_map(|i| self.plates.get(&i))
+            .fold(zero, |acc, v| acc + eval(&v.elevation));
+        let provinces = CellIndex::containing(p, self.province_size)
+            .within(PROVINCE_REACH)
             .filter_map(|i| self.provinces.get(&i))
             .fold(zero, |acc, v| acc + eval(&v.elevation));
+        let faded_in = (self.lo as f64 + self.t).clamp(0., 1.);
+        let mut total = eval(&Field::Constant(self.baseline)) + plates + provinces * faded_in;
 
         let at = |step: u32| -> T {
-            if step == 0 {
+            if step < 2 {
                 return zero;
             }
             CellIndex::containing(p, self.chunk_size)
                 .neighborhood()
                 .filter_map(|i| self.chunks.get(&i))
                 .fold(zero, |acc, c| {
-                    let depth = (step as usize - 1).min(c.fields.len() - 1);
+                    let depth = (step as usize - 2).min(c.fields.len() - 1);
                     acc + eval(&c.fields[depth])
                 })
         };
@@ -410,6 +458,7 @@ pub(crate) fn receive_render(
         Output::Scene(scene) => {
             let mut cells = scene.chunks.ranges.clone();
             cells.extend(&scene.provinces.ranges);
+            cells.extend(&scene.plates.ranges);
             let mut set = |handle: &Handle<ShaderBuffer>, data: ShaderBuffer| {
                 if let Some(mut buffer) = buffers.get_mut(handle) {
                     *buffer = data;
@@ -437,12 +486,15 @@ pub(crate) fn receive_render(
                 covered: done.job.covered(),
                 chunk_origin: scene.chunks.origin(),
                 province_origin: scene.provinces.origin(),
+                plate_origin: scene.plates.origin(),
+                baseline: scene.baseline,
                 tables: UVec4::new(
                     scene.chunks.size[0],
                     scene.chunks.size[1],
                     scene.provinces.size[0],
                     scene.provinces.size[1],
                 ),
+                plate_table: UVec4::new(scene.plates.size[0], scene.plates.size[1], 0, 0),
                 nodes: scene.nodes.len() / NODE_VEC4S,
                 millis: done.millis,
             });
@@ -452,6 +504,7 @@ pub(crate) fn receive_render(
         world: done.world,
         chunks: done.chunks,
         provinces: done.provinces,
+        plates: done.plates,
     });
 }
 

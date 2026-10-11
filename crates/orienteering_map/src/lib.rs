@@ -15,5 +15,8 @@ pub mod grid;
 pub mod raster;
 
 pub use biome::{Band, Biome, BiomeMap, BiomeRegion, BiomeRule, BiomeRules, Regions};
-pub use contour::{Contour, contours, levels, refine_all};
+pub use contour::{
+    CONTOUR_LADDER, Contour, ContourLabel, ContourScale, LabelSpacing, contour_rank, contours,
+    levels, place_labels, refine_all,
+};
 pub use grid::HeightGrid;

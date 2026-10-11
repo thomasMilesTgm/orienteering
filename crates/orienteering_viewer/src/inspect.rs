@@ -44,19 +44,19 @@ pub(crate) fn inspect(
         BiomeRules::default().at(&staged, p),
     );
 
-    // The node being added (or last added) under the cursor.
-    if controls.stage <= 0. {
-        let province = CellIndex::containing(p, shown.world.params.province_size);
-        out += &format!(
-            "\nProvince ({}, {})\n  Only provinces so far. Step forward to see chunks generated.",
-            province.x, province.y
-        );
-        let bounds = province.bounds(shown.world.params.province_size);
-        draw_rect(&mut gizmos, &view, bounds, Color::srgb(0.9, 0.4, 0.1));
+    // Before any chunk: the plate, and the province once it's fading in.
+    if controls.stage <= 1. {
+        out += &describe_plate(&shown, p);
+        if controls.stage > 0. {
+            let province = CellIndex::containing(p, shown.world.params.province_size);
+            out += &format!("\nProvince ({}, {})\n", province.x, province.y);
+            let bounds = province.bounds(shown.world.params.province_size);
+            draw_rect(&mut gizmos, &view, bounds, Color::srgb(0.9, 0.4, 0.1));
+        }
         info.0 = out;
         return;
     }
-    let depth = controls.stage.ceil() as u32 - 1;
+    let depth = controls.stage.ceil() as u32 - 2;
     let index = CellIndex::containing(p, shown.world.params.chunk_size);
     let Some(levels) = shown.chunks.get(&index) else {
         info.0 = out;
@@ -280,4 +280,79 @@ pub(crate) fn draw_rect(gizmos: &mut Gizmos, view: &View, bounds: Aabb, color: C
     let center = view.screen(bounds.center());
     let size = Vec2::new(bounds.width() as f32, bounds.height() as f32) / view.m_per_px as f32;
     gizmos.rect_2d(center, size, color);
+}
+
+/// The plate under `p`, its motion, and the nearest boundary.
+pub(crate) fn describe_plate(shown: &Shown, p: Point2<f64>) -> String {
+    let world = &shown.world;
+    let index = world.plate_at(p);
+    let plate = shown
+        .plates
+        .get(&index)
+        .cloned()
+        .unwrap_or_else(|| world.plate(index));
+    let v = plate.velocity;
+    let bearing = v.x.atan2(v.y).to_degrees().rem_euclid(360.);
+    let mut out = format!(
+        "\nPlate ({}, {}): drifting {bearing:.0} deg at {:.2}\n",
+        index.x,
+        index.y,
+        v.norm()
+    );
+    let nearest = shown
+        .plates
+        .values()
+        .flat_map(|plate| plate.boundaries.iter())
+        .map(|b| (distance_to_segment(p, b.a, b.b), b))
+        .min_by(|a, b| a.0.total_cmp(&b.0));
+    if let Some((distance, b)) = nearest {
+        let kind = match b.kind() {
+            BoundaryKind::Convergent => "converging: a mountain range",
+            BoundaryKind::Divergent => "diverging: a rift",
+            BoundaryKind::Transform => "sliding past",
+        };
+        out += &format!(
+            "  nearest boundary {:.1} km away, {kind}\n  (closing {:+.2}, sliding {:.2})\n",
+            distance / 1000.,
+            b.convergence,
+            b.shear.abs()
+        );
+    }
+    out
+}
+
+fn distance_to_segment(p: Point2<f64>, a: Point2<f64>, b: Point2<f64>) -> f64 {
+    let ab = b - a;
+    let t = ((p - a).dot(&ab) / ab.norm_squared()).clamp(0., 1.);
+    (p - (a + ab * t)).norm()
+}
+
+/// Overlays plate boundaries, colored by kind, and plate motion. (Boundaries are drawn straight;
+/// the ranges along them are gently warped.)
+pub(crate) fn draw_plates(
+    controls: Res<Controls>,
+    view: Res<View>,
+    shown: Option<Res<Shown>>,
+    mut gizmos: Gizmos,
+) {
+    let Some(shown) = shown.filter(|_| controls.plates || controls.stage < 1.) else {
+        return;
+    };
+    let size = shown.world.params.tectonics.plate_size;
+    for plate in shown.plates.values() {
+        for b in &plate.boundaries {
+            let color = match b.kind() {
+                BoundaryKind::Convergent => Color::srgb(0.85, 0.1, 0.1),
+                BoundaryKind::Divergent => Color::srgb(0.1, 0.3, 0.9),
+                BoundaryKind::Transform => Color::srgb(0.45, 0.45, 0.45),
+            };
+            gizmos.line_2d(view.screen(b.a), view.screen(b.b), color);
+        }
+        let tip = plate.center + plate.velocity * size * 0.3;
+        gizmos.arrow_2d(
+            view.screen(plate.center),
+            view.screen(tip),
+            Color::srgb(0.15, 0.15, 0.15),
+        );
+    }
 }

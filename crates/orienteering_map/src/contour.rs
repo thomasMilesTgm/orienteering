@@ -1,7 +1,7 @@
 //! Extracting contour lines (level sets of the height field) with marching squares.
 
 use crate::grid::HeightGrid;
-use nalgebra::Point2;
+use nalgebra::{Point2, Vector2};
 use orienteering_field::Surface;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -51,6 +51,169 @@ pub fn refine_all<S: Surface + Sync + ?Sized>(
         let _parent = span.enter();
         c.refine(surface, iterations);
     });
+}
+
+/// Contour intervals, each a multiple of the one before: every contour of a coarser interval is
+/// also a contour of every finer one, so zooming in only ever adds lines between those already
+/// drawn.
+pub const CONTOUR_LADDER: [f64; 10] = [1., 5., 10., 50., 100., 500., 1000., 5000., 10000., 50000.];
+
+/// A contour level's rank: the coarsest interval of the [`CONTOUR_LADDER`] it lies on (so 150 m
+/// has rank 50 m, and 200 m has rank 100 m). Rank decides how prominently it's drawn.
+pub fn contour_rank(level: f64) -> f64 {
+    CONTOUR_LADDER
+        .iter()
+        .rev()
+        .copied()
+        .find(|&l| {
+            let k = level / l;
+            (k - k.round()).abs() < 1e-6
+        })
+        .unwrap_or(0.)
+}
+
+/// Which contours to draw at a map scale, and how heavily: each level fades in, then thickens, as
+/// the scale makes its rank more widely spaced on screen. Coarser contours are never dropped when
+/// zooming in, only joined by finer ones.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ContourScale {
+    /// The height interval at which contours are as close as is legible: finer intervals are
+    /// hidden, and coarser ones drawn heavier the coarser they are.
+    pub density: f64,
+}
+
+impl ContourScale {
+    /// Contours legible at `m_per_px`: on moderately steep ground, a few pixels apart.
+    pub fn for_scale(m_per_px: f64) -> Self {
+        Self {
+            density: 2.5 * m_per_px,
+        }
+    }
+
+    /// The finest interval drawn at all.
+    pub fn finest(&self) -> f64 {
+        Self::step(self.density, false)
+    }
+
+    /// The finest interval whose contours are heavy enough to label with their heights.
+    pub fn labelled(&self) -> f64 {
+        Self::step(4. * self.density, true)
+    }
+
+    fn step(above: f64, inclusive: bool) -> f64 {
+        CONTOUR_LADDER
+            .into_iter()
+            .find(|&l| if inclusive { l >= above } else { l > above })
+            .unwrap_or(CONTOUR_LADDER[CONTOUR_LADDER.len() - 1])
+    }
+
+    /// How the contour at `level` is drawn: its opacity in [0, 1] and half-width in pixels.
+    pub fn weight(&self, level: f64) -> (f64, f64) {
+        let r = contour_rank(level) / self.density;
+        let t = ((r - 1.) / 1.).clamp(0., 1.);
+        let opacity = t * t * (3. - 2. * t);
+        let width = (0.6 + 0.45 * r.max(1e-9).log2()).clamp(0.6, 1.8);
+        (opacity, width)
+    }
+}
+
+/// Where to label a contour with its height.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ContourLabel {
+    /// On the contour, exactly.
+    pub position: Point2<f64>,
+    pub level: f64,
+    /// Unit vector along the text's baseline, along the contour and reading left to right, so
+    /// the text is upright on a north-up map.
+    pub direction: Vector2<f64>,
+}
+
+impl ContourLabel {
+    /// The text to label the contour with.
+    pub fn text(&self) -> String {
+        format!("{:.0}", self.level)
+    }
+}
+
+/// How to space contour labels, in meters on the ground.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LabelSpacing {
+    /// Distance between labels along a contour.
+    pub along: f64,
+    /// Smallest distance between any two labels.
+    pub apart: f64,
+    /// Height of the label text: labels are skipped where neighboring contours are closer than
+    /// about this, as the text wouldn't fit between them.
+    pub text: f64,
+}
+
+/// Places height labels along `contours` (typically the index contours), spaced along each line
+/// and kept apart from each other, snapped exactly onto their level with Newton steps on
+/// `surface`. `interval` is the spacing between all contours, used to avoid crowded places.
+pub fn place_labels<S: Surface + ?Sized>(
+    contours: &[Contour],
+    surface: &S,
+    interval: f64,
+    spacing: LabelSpacing,
+) -> Vec<ContourLabel> {
+    let mut labels: Vec<ContourLabel> = vec![];
+    for contour in contours {
+        let n = contour.points.len();
+        let segments = if contour.closed {
+            n
+        } else {
+            n.saturating_sub(1)
+        };
+        let mut lengths = Vec::with_capacity(segments);
+        for k in 0..segments {
+            lengths.push((contour.points[(k + 1) % n] - contour.points[k]).norm());
+        }
+        let total: f64 = lengths.iter().sum();
+        if total < spacing.along / 2. {
+            continue;
+        }
+
+        // Candidates every `along`, starting half way in (and clear of open lines' ends).
+        let mut next = spacing.along / 2.;
+        let mut walked = 0.;
+        for (k, &len) in lengths.iter().enumerate() {
+            while next <= walked + len && next <= total - spacing.along / 4. {
+                let t = (next - walked) / len.max(1e-12);
+                let a = contour.points[k];
+                let b = contour.points[(k + 1) % n];
+                next += spacing.along;
+
+                let mut on = Contour {
+                    level: contour.level,
+                    points: vec![a + (b - a) * t],
+                    closed: false,
+                };
+                on.refine(surface, 3);
+                let position = on.points[0];
+                let (_, g) = surface.height_and_gradient(position);
+                let slope = g.norm();
+                if slope < 1e-9 || interval / slope < 1.6 * spacing.text {
+                    continue;
+                }
+                if labels
+                    .iter()
+                    .any(|l| (l.position - position).norm() < spacing.apart)
+                {
+                    continue;
+                }
+                let along = Vector2::new(g.y, -g.x) / slope;
+                labels.push(ContourLabel {
+                    position,
+                    level: contour.level,
+                    direction: if along.x < 0. { -along } else { along },
+                });
+            }
+            walked += len;
+        }
+    }
+    labels
 }
 
 /// Contour levels: every multiple of `interval` within `[min, max]`.
@@ -238,5 +401,49 @@ mod test {
         let lines = contours(&grid, levels(-4.9, 4.9, 1.));
         assert_eq!(lines.len(), 9);
         assert!(lines.iter().all(|l| !l.closed && l.points.len() > 30));
+    }
+
+    #[test]
+    fn labels_sit_on_contours_upright() {
+        let hill = Field::bump(Point2::new(3., -7.), 120., 100.);
+        let area = Aabb::centered(Point2::origin(), 800.);
+        let grid = HeightGrid::sample(&hill, area, 4.);
+        let lines = contours(&grid, levels(1., 99., 25.));
+        let spacing = LabelSpacing {
+            along: 300.,
+            apart: 40.,
+            text: 5.,
+        };
+        let labels = place_labels(&lines, &hill, 25., spacing);
+        assert!(labels.len() >= 4, "{} labels", labels.len());
+        for l in &labels {
+            approx::assert_relative_eq!(hill.height(l.position), l.level, epsilon = 1e-6);
+            // Along the contour (across the slope), reading left to right.
+            let g = hill.gradient(l.position).normalize();
+            approx::assert_relative_eq!(l.direction.dot(&g), 0., epsilon = 1e-6);
+            assert!(l.direction.x >= 0.);
+            for other in labels.iter().filter(|o| *o != l) {
+                assert!((other.position - l.position).norm() >= 40.);
+            }
+        }
+    }
+
+    #[test]
+    fn zooming_in_only_adds_contours() {
+        assert_eq!(contour_rank(150.), 50.);
+        assert_eq!(contour_rank(200.), 100.);
+        assert_eq!(contour_rank(35.), 5.);
+        // Every level drawn at a coarse scale is drawn at least as heavily at a finer one.
+        let levels: Vec<f64> = (1..=400).map(|k| k as f64).collect();
+        let mut previous = ContourScale::for_scale(64.);
+        for m_per_px in [32., 16., 8., 4., 2., 1., 0.5] {
+            let scale = ContourScale::for_scale(m_per_px);
+            for &level in &levels {
+                let (a0, w0) = previous.weight(level);
+                let (a1, w1) = scale.weight(level);
+                assert!(a1 >= a0 && w1 >= w0, "{level} m at {m_per_px} m/px");
+            }
+            previous = scale;
+        }
     }
 }

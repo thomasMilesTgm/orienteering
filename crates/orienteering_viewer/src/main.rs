@@ -1,11 +1,13 @@
 //! Interactive visualization of how the terrain is generated.
 //!
-//! `cargo run --release -p orienteering_viewer`
+//! `cargo run --release -p orienteering_viewer -- [seed] [m/px] [center x] [center y]`
 //!
 //! - **Seed**: click the seed box, type, and press Enter (Escape cancels).
 //! - **Generation steps**: drag the slider, or use ←/→ to step and Space to play. The terrain is
-//!   built coarse to fine: provinces, then chunk landforms, then each level of detail. Between
-//!   steps the next level fades in.
+//!   built coarse to fine: plate tectonics, provinces, then chunk landforms, then each level of
+//!   detail. Between steps the next level fades in.
+//! - **Plates**: press T to overlay plate boundaries (red converging, blue diverging, grey
+//!   sliding) and plate motion; it's on automatically for the first two steps.
 //! - **Inspect**: hover over the map to see the quadtree node under the cursor at the current step:
 //!   what the terrain looked like around it when it was generated (its site), how it responded,
 //!   and the features it added, which are outlined over the map.
@@ -48,7 +50,10 @@ use orienteering::{
         raster::{self, MapStyle},
     },
     math::Aabb,
-    terrain::{self, CellIndex, NodeTrace, Province, TerrainParams, TracedChunk},
+    terrain::{
+        self, BoundaryKind, CellIndex, NodeTrace, PLATE_REACH, PROVINCE_REACH, Plate, Province,
+        TerrainParams, TracedChunk,
+    },
 };
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -59,24 +64,48 @@ use std::time::Instant;
 mod gpu;
 mod input;
 mod inspect;
+mod labels;
 mod ui;
 mod worker;
 
 use gpu::*;
 use input::*;
 use inspect::*;
+use labels::*;
 use ui::*;
 use worker::*;
 
 const DEFAULT_SEED: &str = "misty hollow";
 /// Meters per logical pixel.
-const SCALE_RANGE: (f64, f64) = (0.25, 16.);
+const SCALE_RANGE: (f64, f64) = (0.25, 128.);
+/// Meters per logical pixel beyond which chunks aren't generated: their detail would be invisible,
+/// and a view this wide covers too many of them.
+const DETAIL_LIMIT: f64 = 16.;
+
+/// The map style for a scale. Zoomed far out only the broad, gentle relief is shown, so contour
+/// density is capped: there are always 50 m contours.
+fn map_style(m_per_px: f64) -> MapStyle {
+    let mut style = MapStyle::for_scale(m_per_px);
+    style.contours.density = style.contours.density.min(25.);
+    // Labels are drawn as text over the map, in both renderers.
+    style.labels = false;
+    style
+}
 /// Seconds after the last interaction before rendering at full resolution.
 const SETTLE: f32 = 0.25;
 /// Steps per second while playing.
 const PLAY_SPEED: f64 = 0.6;
 
 fn main() {
+    let mut args = std::env::args().skip(1);
+    let seed = args.next().unwrap_or_else(|| DEFAULT_SEED.into());
+    let mut number = |default: f64| {
+        args.next()
+            .map_or(default, |a| a.parse().expect("a number"))
+    };
+    let m_per_px = number(4.).clamp(SCALE_RANGE.0, SCALE_RANGE.1);
+    let center = Point2::new(number(0.), number(0.));
+
     App::new()
         .add_plugins(
             DefaultPlugins
@@ -100,16 +129,14 @@ fn main() {
             Material2dPlugin::<StyleMaterial>::default(),
         ))
         .insert_resource(Controls {
-            seed: DEFAULT_SEED.into(),
+            seed,
             stage: steps() as f64,
             gpu: true,
             ..default()
         })
-        .insert_resource(View {
-            center: Point2::origin(),
-            m_per_px: 4.,
-        })
+        .insert_resource(View { center, m_per_px })
         .insert_resource(Worker::spawn())
+        .insert_resource(Labeler::spawn())
         .add_systems(Startup, (setup_camera, setup_gpu, setup_cpu_map, setup_ui))
         .add_systems(
             Update,
@@ -124,9 +151,14 @@ fn main() {
                 place_gpu_map,
                 place_cpu_map,
                 inspect,
+                draw_plates,
                 update_seed_ui,
                 update_slider_ui,
                 update_status_ui,
+                request_labels,
+                receive_labels,
+                place_label_text,
+                fit_label_backing,
             )
                 .chain(),
         )
@@ -137,16 +169,17 @@ fn setup_camera(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
-/// The last step: provinces, landforms, then each level of detail.
+/// The last step: tectonics, provinces, landforms, then each level of detail.
 fn steps() -> u32 {
-    TerrainParams::default().max_depth + 1
+    TerrainParams::default().max_depth + 2
 }
 
 fn step_name(k: u32) -> String {
     match k {
-        0 => "Provinces".into(),
-        1 => "Landforms".into(),
-        k => format!("Detail {}", k - 1),
+        0 => "Tectonics".into(),
+        1 => "Provinces".into(),
+        2 => "Landforms".into(),
+        k => format!("Detail {}", k - 2),
     }
 }
 
@@ -154,17 +187,22 @@ fn step_description(k: u32) -> String {
     let p = TerrainParams::default();
     match k {
         0 => format!(
+            "{} km plates drift and collide: mountain ranges rise where they converge, rifts sink \
+             where they diverge, and ruggedness rises around the ranges.",
+            p.tectonics.plate_size / 1000.
+        ),
+        1 => format!(
             "{} km provinces set the broad shape: basins, uplands and ranges. A smooth \
              ruggedness field uplifts rugged ground and lets smooth ground sink.",
             p.province_size / 1000.
         ),
-        1 => format!(
+        2 => format!(
             "{} km chunks add hills, ridges and valleys, each scaled by the activity of the \
              ground it sits on.",
             p.chunk_size / 1000.
         ),
         k => {
-            let size = p.chunk_size / 2f64.powi(k as i32 - 1);
+            let size = p.chunk_size / 2f64.powi(k as i32 - 2);
             format!(
                 "{size} m nodes respond to the terrain so far: channels cut downhill, rugged \
                  ground gets steeper, smooth ground is damped and filled."
@@ -188,6 +226,8 @@ pub(crate) struct Controls {
     pub(crate) last_interaction: f32,
     /// Render on the GPU rather than the CPU.
     pub(crate) gpu: bool,
+    /// Overlay plate boundaries and motion (always shown for the first two steps).
+    pub(crate) plates: bool,
 }
 
 #[derive(Resource, Clone, Copy, PartialEq, Debug)]
@@ -219,6 +259,7 @@ pub(crate) struct Shown {
     pub(crate) world: terrain::World,
     pub(crate) chunks: HashMap<CellIndex, Arc<Levels>>,
     pub(crate) provinces: Arc<HashMap<CellIndex, Province>>,
+    pub(crate) plates: Arc<HashMap<CellIndex, Plate>>,
 }
 
 impl Shown {
@@ -227,6 +268,8 @@ impl Shown {
         let lo = stage.floor().clamp(0., steps() as f64) as u32;
         let p = &self.world.params;
         Staged {
+            baseline: p.mean_elevation,
+            plates: &self.plates,
             provinces: &self.provinces,
             chunks: &self.chunks,
             lo,
@@ -234,6 +277,7 @@ impl Shown {
             t: stage - lo as f64,
             chunk_size: p.chunk_size,
             province_size: p.province_size,
+            plate_size: p.tectonics.plate_size,
         }
     }
 }

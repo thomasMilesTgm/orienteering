@@ -23,7 +23,10 @@ pub(crate) struct SceneInfo {
     pub(crate) covered: Aabb,
     pub(crate) chunk_origin: Point2<f64>,
     pub(crate) province_origin: Point2<f64>,
+    pub(crate) plate_origin: Point2<f64>,
+    pub(crate) baseline: f32,
     pub(crate) tables: UVec4,
+    pub(crate) plate_table: UVec4,
     pub(crate) nodes: usize,
     pub(crate) millis: f64,
 }
@@ -51,8 +54,10 @@ impl Material2d for FieldMaterial {
 #[derive(ShaderType, Debug, Clone, Default, PartialEq)]
 pub(crate) struct FieldParams {
     pub(crate) view: Vec4,
+    pub(crate) plates: Vec4,
     pub(crate) scale: Vec4,
     pub(crate) tables: UVec4,
+    pub(crate) plate_table: UVec4,
 }
 
 /// Pass 2: styles the evaluated terrain.
@@ -201,8 +206,15 @@ pub(crate) fn update_gpu_map(
     let p = TerrainParams::default();
     let offset = |origin: Point2<f64>| view.center - origin;
     let (oc, op) = (offset(scene.chunk_origin), offset(scene.province_origin));
+    let ot = offset(scene.plate_origin);
     let field = FieldParams {
         view: Vec4::new(oc.x as f32, oc.y as f32, op.x as f32, op.y as f32),
+        plates: Vec4::new(
+            ot.x as f32,
+            ot.y as f32,
+            p.tectonics.plate_size as f32,
+            scene.baseline,
+        ),
         scale: Vec4::new(
             p.chunk_size as f32,
             p.province_size as f32,
@@ -211,6 +223,7 @@ pub(crate) fn update_gpu_map(
             controls.stage as f32,
         ),
         tables: scene.tables,
+        plate_table: scene.plate_table,
     };
     if field != last.0 || gpu.version != last.2 {
         if let Some(mut material) = field_materials.get_mut(&gpu.field_material) {
@@ -227,7 +240,7 @@ pub(crate) fn update_gpu_map(
     let rules = BiomeRules::default();
     let mut style = StyleParams {
         style: Vec4::new(
-            MapStyle::for_scale(view.m_per_px).interval as f32,
+            map_style(view.m_per_px).contours.density as f32,
             // Half the averaging scale, in physical pixels.
             (rules.slope_scale / 2. / view.m_per_px) as f32 * window.scale_factor(),
             rules.rules.len().min(8) as f32,

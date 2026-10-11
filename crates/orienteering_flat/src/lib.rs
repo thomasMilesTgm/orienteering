@@ -2,11 +2,11 @@
 //!
 //! Shaders can't recurse or follow boxed enums, so a [`Field`] tree is flattened into arrays:
 //!
-//! - **Nodes**: one per window (each [`Field::Masked`]) or warp (each [`Field::Warped`]), plus a
-//!   root per cell, in pre-order. Each node stores its own primitive features as a range of the
+//! - **Nodes**: one per window (each [`Field::Masked`]), warp (each [`Field::Warped`]) or bounded
+//!   subtree (each [`Field::Bounded`]), plus a root per cell, in pre-order. Each node stores its own primitive features as a range of the
 //!   feature array, and the index just past its subtree (`skip`), so a traversal can skip a whole
 //!   subtree, outside its support or not yet generated, without a stack.
-//! - **Features**: the primitives (constants, planes, bumps, ridges, scarps, waves), with any
+//! - **Features**: the primitives (constants, planes, bumps, ridges, scarps, waves, ranges), with any
 //!   [`Field::Scaled`] factors folded into their heights.
 //!
 //! Coordinates are relative to each cell's origin and stored as f32, which keeps millimeter
@@ -38,14 +38,15 @@
 //! | 3 ridge | origin | direction | width | height | |
 //! | 4 scarp | origin | normal | width | height | |
 //! | 5 wave | | direction | 2π / wavelength | phase | amplitude |
+//! | 6 range | center | direction | width | height | half length |
 //!
 //! Nodes' features are weighted by `clamp(stage - level, 0, 1)`: the terrain partway through
 //! generation (see [`FlatScene::height_and_gradient`]).
 
 use nalgebra::{Point2, Vector2};
-use orienteering_field::{Field, Window};
+use orienteering_field::{Field, SCARP_REACH, Window};
 use orienteering_math::Aabb;
-use orienteering_terrain::CellIndex;
+use orienteering_terrain::{CellIndex, PLATE_REACH, PROVINCE_REACH};
 use std::f64::consts::TAU;
 use std::ops::{Add, Mul};
 
@@ -90,7 +91,7 @@ impl FlatCell {
             origin,
             level: &level,
         };
-        f.node(None, None, 0, 0, 1., field)?;
+        f.node(None, None, None, 0, 0, 1., field)?;
         Ok(f.cell)
     }
 
@@ -109,6 +110,7 @@ struct Flattener<'a> {
 enum Child<'a> {
     Window(&'a Window, &'a Aabb, &'a Field, f64),
     Warp(&'a Field, &'a Field, &'a Field, f64),
+    Bounded(&'a Aabb, &'a Field, f64),
 }
 
 impl<'a> Flattener<'a> {
@@ -119,7 +121,8 @@ impl<'a> Flattener<'a> {
     /// Pushes a node, its features and then its children's subtrees.
     fn node(
         &mut self,
-        window: Option<(&Window, &Aabb)>,
+        window: Option<&Window>,
+        support: Option<&Aabb>,
         warp: Option<(&Field, &Field)>,
         depth: u32,
         windows: u32,
@@ -137,32 +140,35 @@ impl<'a> Flattener<'a> {
         self.collect(body, scale, &mut children)?;
         let end = self.cell.features.len() as u32;
         if warp.is_some() && !children.is_empty() {
-            return Err(Unsupported("windows inside a warp"));
+            return Err(Unsupported("windows or bounds inside a warp"));
         }
 
         let level = (self.level)(windows);
         for child in children {
             match child {
                 Child::Window(w, support, f, s) => {
-                    self.node(Some((w, support)), None, depth + 1, windows + 1, s, f)?
+                    self.node(Some(w), Some(support), None, depth + 1, windows + 1, s, f)?
                 }
                 Child::Warp(dx, dy, f, s) => {
-                    self.node(None, Some((dx, dy)), depth + 1, windows, s, f)?
+                    self.node(None, None, Some((dx, dy)), depth + 1, windows, s, f)?
+                }
+                Child::Bounded(support, f, s) => {
+                    self.node(None, Some(support), None, depth + 1, windows, s, f)?
                 }
             }
         }
         let skip = self.cell.nodes.len() as u32;
 
         let (min, max, blend) = match window {
-            Some((w, _)) => (
+            Some(w) => (
                 self.local(w.bounds.min),
                 self.local(w.bounds.max),
                 w.blend as f32,
             ),
             None => ([0.; 2], [0.; 2], 0.),
         };
-        let (smin, smax) = match window {
-            Some((_, s)) => (self.local(s.min), self.local(s.max)),
+        let (smin, smax) = match support {
+            Some(s) => (self.local(s.min), self.local(s.max)),
             None => ([-1e9; 2], [1e9; 2]),
         };
         let [wx, wy] = match warp {
@@ -218,7 +224,23 @@ impl<'a> Flattener<'a> {
                 children.push(Child::Warp(dx, dy, field, scale));
                 return Ok(());
             }
+            Field::Bounded { support, field } => {
+                children.push(Child::Bounded(support, field, scale));
+                return Ok(());
+            }
             Field::Product(_) => return Err(Unsupported("products")),
+            Field::Range {
+                center,
+                direction,
+                half_length,
+                width,
+                height,
+            } => feature(
+                6,
+                self.local(*center),
+                v(direction),
+                [*width, height * scale, *half_length],
+            ),
             Field::Constant(c) => feature(0, [0.; 2], [0.; 2], [c * scale, 0., 0.]),
             Field::Plane { origin, slope } => {
                 feature(1, self.local(*origin), v(&(slope * scale)), [0.; 3])
@@ -320,7 +342,7 @@ impl CellTable {
     }
 }
 
-/// Flattened provinces and chunks covering an area, ready to upload.
+/// Flattened plates, provinces and chunks covering an area, ready to upload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FlatScene {
     /// [`NODE_VEC4S`] per node.
@@ -329,6 +351,9 @@ pub struct FlatScene {
     pub features: Vec<[f32; 4]>,
     pub chunks: CellTable,
     pub provinces: CellTable,
+    pub plates: CellTable,
+    /// A constant height under everything (the world's mean elevation); 0 by default.
+    pub baseline: f32,
 }
 
 impl FlatScene {
@@ -337,15 +362,20 @@ impl FlatScene {
         chunk_size: f64,
         provinces: impl IntoIterator<Item = (CellIndex, FlatCell)>,
         province_size: f64,
+        plates: impl IntoIterator<Item = (CellIndex, FlatCell)>,
+        plate_size: f64,
     ) -> Self {
         let mut scene = Self {
             nodes: vec![],
             features: vec![],
             chunks: CellTable::empty(chunk_size),
             provinces: CellTable::empty(province_size),
+            plates: CellTable::empty(plate_size),
+            baseline: 0.,
         };
         scene.chunks = scene.table(chunks, chunk_size);
         scene.provinces = scene.table(provinces, province_size);
+        scene.plates = scene.table(plates, plate_size);
         scene
     }
 
@@ -398,8 +428,12 @@ impl FlatScene {
     /// Height and gradient at `p`, partway through generation at `stage`, computed exactly as the
     /// shader does (in f32): the reference for testing both the flattening and the shader.
     pub fn height_and_gradient(&self, p: Point2<f64>, stage: f32) -> (f32, [f32; 2]) {
-        let mut total = D::constant(0.);
-        for (table, reach) in [(&self.provinces, 2), (&self.chunks, 1)] {
+        let mut total = D::constant(self.baseline);
+        for (table, reach) in [
+            (&self.plates, PLATE_REACH),
+            (&self.provinces, PROVINCE_REACH),
+            (&self.chunks, 1),
+        ] {
             if table.size[0] == 0 {
                 continue;
             }
@@ -572,8 +606,22 @@ fn feature(f: &[[f32; 4]], x: D, y: D) -> D {
             let d = rx * -by + ry * bx;
             ((d * d) * (-0.5 / (p0 * p0))).exp() * p1
         }
-        4 => ((rx * bx + ry * by) * (1. / p0)).tanh() * (p1 / 2.),
+        4 => {
+            let d = rx * bx + ry * by;
+            let reach = SCARP_REACH as f32 * p0;
+            let fade = ((d * d) * (-0.5 / (reach * reach))).exp();
+            (d * (1. / p0)).tanh() * fade * (p1 / 2.)
+        }
         5 => wave(x, y, [bx, by, p0, p1, p2]),
+        6 => {
+            let along = rx * bx + ry * by;
+            let across = rx * -by + ry * bx;
+            let k = 1. / p0;
+            let taper = (((along + D::constant(p2)) * k).tanh()
+                + ((along + D::constant(-p2)) * k).tanh() * -1.)
+                * 0.5;
+            ((across * across) * (-0.5 * k * k)).exp() * taper * p1
+        }
         _ => D::constant(0.),
     }
 }
@@ -610,13 +658,24 @@ mod test {
             + warped
             + nested;
         let field = node.masked(w) * 3.
+            + Field::range(
+                Point2::new(900., 2100.),
+                Point2::new(1600., 2400.),
+                60.,
+                30.,
+            )
+            .warped(
+                Field::wave(Vector2::new(1., 1.), 900., 0.2, 40.),
+                Field::wave(Vector2::new(1., -1.), 700., 1.2, 40.),
+            )
+            .bounded(Aabb::centered(Point2::new(1250., 2250.), 2000.))
             + Field::plane(Point2::new(1000., 2000.), Vector2::new(0.01, 0.02))
             + Field::Constant(7.);
 
         // A table holding the single cell whose origin the field is flattened relative to.
         let origin = Point2::new(1000., 2000.);
         let flat = FlatCell::new(&field, origin, |_| ALWAYS).unwrap();
-        let scene = FlatScene::new([(CellIndex::new(1, 2), flat)], 1000., [], 8000.);
+        let scene = FlatScene::new([(CellIndex::new(1, 2), flat)], 1000., [], 8000., [], 48000.);
 
         for (x, y) in [
             (1200., 2300.),
@@ -652,9 +711,15 @@ mod test {
     /// Flattens a world's provinces and chunks the way the viewer does.
     fn scene(world: &World, area: Aabb) -> (FlatScene, Vec<TracedChunk>) {
         let p = &world.params;
-        let provinces = CellIndex::covering(area, p.province_size, 2).map(|i| {
+        let provinces = CellIndex::covering(area, p.province_size, PROVINCE_REACH).map(|i| {
             let origin = i.bounds(p.province_size).min;
             let flat = FlatCell::new(&world.province(i).elevation, origin, |_| ALWAYS);
+            (i, flat.unwrap())
+        });
+        let plate_size = p.tectonics.plate_size;
+        let plates = CellIndex::covering(area, plate_size, PLATE_REACH).map(|i| {
+            let origin = i.bounds(plate_size).min;
+            let flat = FlatCell::new(&world.plate(i).elevation, origin, |_| ALWAYS);
             (i, flat.unwrap())
         });
         let traced: Vec<_> = CellIndex::covering(area, p.chunk_size, 1)
@@ -666,12 +731,15 @@ mod test {
             let flat = FlatCell::new(&t.chunk.field, origin, |n| n as f32 - 1.);
             (t.chunk.index, flat.unwrap())
         });
-        let scene = FlatScene::new(
+        let mut scene = FlatScene::new(
             chunks,
             p.chunk_size,
             provinces.collect::<Vec<_>>(),
             p.province_size,
+            plates.collect::<Vec<_>>(),
+            plate_size,
         );
+        scene.baseline = p.mean_elevation as f32;
         (scene, traced)
     }
 
@@ -714,9 +782,11 @@ mod test {
                 let provinces: f64 = region
                     .provinces
                     .values()
-                    .map(|v| v.elevation.height(p))
+                    .map(|v| &v.elevation)
+                    .chain(region.plates.values().map(|v| &v.elevation))
+                    .map(|f| f.height(p))
                     .sum();
-                provinces + chunks
+                region.baseline + provinces + chunks
             };
             for &p in &points {
                 let (lo, t) = (f64::floor(stage), stage - f64::floor(stage));

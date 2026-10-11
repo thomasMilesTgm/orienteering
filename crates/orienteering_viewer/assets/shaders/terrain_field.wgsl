@@ -17,16 +17,20 @@ struct VertexOutput {
 struct Params {
     // xy: view center - chunk table origin; zw: view center - province table origin (meters).
     view: vec4<f32>,
+    // xy: view center - plate table origin; z: plate size; w: baseline elevation.
+    plates: vec4<f32>,
     // chunk size, province size, meters per pixel, stage.
     scale: vec4<f32>,
     // chunk table width, height; province table width, height.
     tables: vec4<u32>,
+    // plate table width, height.
+    plate_table: vec4<u32>,
 }
 
 @group(2) @binding(0) var<uniform> params: Params;
 @group(2) @binding(1) var<storage, read> nodes: array<vec4<f32>>;
 @group(2) @binding(2) var<storage, read> features: array<vec4<f32>>;
-// [start, end) node ranges: the chunk table, then the province table.
+// [start, end) node ranges: the chunk table, then the province table, then the plate table.
 @group(2) @binding(3) var<storage, read> cells: array<vec2<u32>>;
 
 const NODE: u32 = 6u;
@@ -84,8 +88,22 @@ fn feature(i: u32, x: vec3<f32>, y: vec3<f32>) -> vec3<f32> {
             let d = rx * -b.y + ry * b.x;
             return dexp(dmul(d, d) * (-0.5 / (f1.y * f1.y))) * f1.z;
         }
-        case 4u: { return dtanh((rx * b.x + ry * b.y) * (1.0 / f1.y)) * (f1.z * 0.5); }
+        case 4u: {
+            // A cliff whose offset fades over SCARP_REACH (4) widths either side.
+            let d = rx * b.x + ry * b.y;
+            let reach = 4.0 * f1.y;
+            let fade = dexp(dmul(d, d) * (-0.5 / (reach * reach)));
+            return dmul(dtanh(d * (1.0 / f1.y)), fade) * (f1.z * 0.5);
+        }
         case 5u: { return wave(x, y, b, f1.y, f1.z, f1.w); }
+        case 6u: {
+            // A mountain range: a Gaussian ridge along a segment, tapering past its ends.
+            let along = rx * b.x + ry * b.y;
+            let across = rx * -b.y + ry * b.x;
+            let k = 1.0 / f1.y;
+            let taper = (dtanh((along + c(f1.w)) * k) - dtanh((along - c(f1.w)) * k)) * 0.5;
+            return dmul(dexp(dmul(across, across) * (-0.5 * k * k)), taper) * f1.z;
+        }
         default: { return c(0.0); }
     }
 }
@@ -163,7 +181,12 @@ fn eval_table(p: vec2<f32>, size: f32, dims: vec2<u32>, offset: u32, reach: i32,
 fn terrain(offset: vec2<f32>) -> vec3<f32> {
     let stage = params.scale.w;
     let chunks = params.tables.x * params.tables.y;
-    return eval_table(params.view.zw + offset, params.scale.y, params.tables.zw, chunks, 2, stage)
+    let provinces = params.tables.z * params.tables.w;
+    // Reaches match PLATE_REACH and PROVINCE_REACH.
+    return c(params.plates.w)
+        + eval_table(params.plates.xy + offset, params.plates.z, params.plate_table.xy,
+            chunks + provinces, 3, stage)
+        + eval_table(params.view.zw + offset, params.scale.y, params.tables.zw, chunks, 2, stage)
         + eval_table(params.view.xy + offset, params.scale.x, params.tables.xy, 0u, 1, stage);
 }
 

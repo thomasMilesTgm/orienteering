@@ -80,6 +80,9 @@ pub(crate) fn step_keys(
         if keys.just_pressed(KeyCode::KeyG) {
             controls.gpu = !controls.gpu;
         }
+        if keys.just_pressed(KeyCode::KeyT) {
+            controls.plates = !controls.plates;
+        }
         if keys.just_pressed(KeyCode::Space) {
             controls.playing = !controls.playing;
             if controls.playing && controls.stage >= last {

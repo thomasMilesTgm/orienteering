@@ -152,7 +152,7 @@ pub(crate) fn setup_ui(mut commands: Commands) {
             panel.spawn((
                 Text::new(
                     "Left/Right step | Space play | scroll zoom | drag pan | hover to inspect | \
-                     G GPU/CPU",
+                     G GPU/CPU | T plates",
                 ),
                 text(12., DIM),
             ));
@@ -214,6 +214,12 @@ pub(crate) fn update_status_ui(
         *fps * 0.95 + 0.05 / dt
     };
 
+    let scale = map_style(view.m_per_px).contours;
+    let legend = format!(
+        "contours {} m, labelled every {} m",
+        scale.finest(),
+        scale.labelled()
+    );
     status.0 = if controls.gpu {
         match &gpu.scene {
             Some(s) => format!(
@@ -253,4 +259,5 @@ pub(crate) fn update_status_ui(
             None => "CPU | rendering...".into(),
         }
     };
+    status.0 = format!("{legend} | {}", status.0);
 }

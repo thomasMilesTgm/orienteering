@@ -2,10 +2,15 @@
 //!
 //! `cargo run --release --example contour_map -- [seed phrase] [output.png] [extent m] [m/px]
 //! [center x] [center y]`
+//!
+//! Areas wider than 20 km show only the broad shape of the land (plates and provinces).
 
 use nalgebra::Point2;
 use orienteering::{
-    map::raster::{self, MapStyle},
+    map::{
+        ContourScale,
+        raster::{self, MapStyle},
+    },
     math::Aabb,
     terrain::{TerrainParams, World},
 };
@@ -21,12 +26,29 @@ fn main() {
 
     let world = World::from_phrase(&phrase, TerrainParams::default());
     let area = Aabb::centered(center, extent);
-    let region = world.region(area);
+    let broad = extent > 20_000.;
+    let region = if broad {
+        world.broad_region(area)
+    } else {
+        world.region(area)
+    };
 
-    let style = MapStyle {
-        interval: 5.,
-        min_area: 400.,
-        refine: 2,
+    // Broad views show only the large-scale relief, gentle enough for closer contours than the
+    // pixel size alone would suggest.
+    let style = if broad {
+        MapStyle {
+            contours: ContourScale { density: 25. },
+            min_area: 400.,
+            refine: 0,
+            labels: true,
+        }
+    } else {
+        MapStyle {
+            contours: ContourScale::for_scale(scale),
+            min_area: 400.,
+            refine: 2,
+            labels: true,
+        }
     };
     let map = raster::render(&region, area, scale, &style);
 

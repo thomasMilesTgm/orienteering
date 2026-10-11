@@ -12,7 +12,8 @@ struct VertexOutput {
 }
 
 struct Style {
-    // contour interval, slope averaging offset in texels, number of biome rules, fallback biome.
+    // contour density (see ContourScale), slope averaging offset in texels, number of biome rules,
+    // fallback biome.
     style: vec4<f32>,
     // Per rule: altitude min, max, slope min, max.
     rules: array<vec4<f32>, 8>,
@@ -27,6 +28,9 @@ struct Style {
 @group(2) @binding(1) var field: texture_2d<f32>;
 
 const MARSH: u32 = 1u;
+
+// Mirrors orienteering_map::CONTOUR_LADDER: each interval a multiple of the one before.
+const LADDER_STEPS: u32 = 10u;
 
 fn sample(p: vec2<i32>) -> vec3<f32> {
     let size = vec2<i32>(textureDimensions(field));
@@ -47,6 +51,13 @@ fn line(distance_px: f32, half_width: f32) -> f32 {
     return 1.0 - smoothstep(half_width - 0.5, half_width + 0.5, distance_px);
 }
 
+// Distance in pixels from a value `d` away from a level, given how much the value changes per
+// pixel. Perfectly flat ground crosses no level, so it's never on a line (as with marching
+// squares), even where it sits exactly at one.
+fn pixels_from(d: f32, per_pixel: f32) -> f32 {
+    return select(1e9, abs(d) / per_pixel, per_pixel > 1e-9);
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let p = vec2<i32>(floor(in.position.xy));
@@ -54,11 +65,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let h = t.x;
     let g = t.yz;
 
-    // Contours, from screen-space derivatives (which need uniform control flow, so first).
-    let interval = style.style.x;
-    let v = h / interval;
-    let dv = max(fwidth(v), 1e-6);
-    let dh = max(fwidth(h), 1e-6);
+    // Screen-space derivatives need uniform control flow, so first.
+    let dh = fwidth(h);
 
     // Slope averaged over the classification scale, as the CPU does, so summits and saddles
     // don't speckle as flat ground.
@@ -83,14 +91,29 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let brown = vec3(0.49, 0.16, 0.02);
     let blue = vec3(0.0, 0.3, 0.7);
+    // Contours of every interval of the ladder, each fading in and thickening as the scale makes
+    // it more widely spaced (as ContourScale::weight): zooming in only adds finer lines. Coarser
+    // contours coincide with finer ones, and the heaviest wins.
     if h >= 0.0 {
-        let nearest = round(v);
-        let index = abs(nearest - 5.0 * round(nearest / 5.0)) < 0.5;
-        let distance = abs(v - nearest) / dv;
-        color = mix(color, brown, line(distance, select(0.7, 1.4, index)));
+        var ladder = array<f32, 10>(1.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0, 50000.0);
+        let density = style.style.x;
+        var ink = 0.0;
+        for (var k = 0u; k < LADDER_STEPS; k++) {
+            let interval = ladder[k];
+            let r = interval / density;
+            let opacity = smoothstep(1.0, 2.0, r);
+            if opacity <= 0.0 {
+                continue;
+            }
+            let v = h / interval;
+            let distance = pixels_from(v - round(v), dh / interval);
+            let width = clamp(0.6 + 0.45 * log2(r), 0.6, 1.8);
+            ink = max(ink, line(distance, width) * opacity);
+        }
+        color = mix(color, brown, ink);
     }
     // The shoreline.
-    color = mix(color, blue, line(abs(h) / dh, 1.2));
+    color = mix(color, blue, line(pixels_from(h, dh), 1.2));
 
     return vec4(color, 1.0);
 }

@@ -28,6 +28,9 @@ pub const WINDOW_TOLERANCE: f64 = 1e-3;
 /// A [`Window`]'s support never extends more than this many blend widths past its bounds.
 pub const WINDOW_CUTOFF: f64 = 6.;
 
+/// How many widths either side of a [`Field::Scarp`] its offset fades over.
+pub const SCARP_REACH: f64 = 4.;
+
 /// A smooth rectangular mask: ≈1 inside `bounds`, ≈0 outside, with tanh transitions of width
 /// `blend` centered on the edges.
 ///
@@ -104,12 +107,32 @@ pub enum Field {
     },
 
     /// A cliff band or escarpment: a smooth step of total `height` across the line through
-    /// `origin` perpendicular to `normal`, rising towards `normal` over about `width` meters.
+    /// `origin` perpendicular to `normal`, rising towards `normal` over about `width` meters. The
+    /// step's offset fades away from the cliff (over [`SCARP_REACH`] widths), so it stays a local
+    /// cliff rather than shifting everything on either side.
     Scarp {
         origin: Point2<f64>,
         normal: Vector2<f64>,
         width: f64,
         height: f64,
+    },
+
+    /// A mountain range (or, if `height` < 0, a trough): a Gaussian ridge of the given `width`
+    /// along the segment of length `2 · half_length` through `center` in `direction`, tapering
+    /// off past each end over about `width`.
+    Range {
+        center: Point2<f64>,
+        direction: Vector2<f64>,
+        half_length: f64,
+        width: f64,
+        height: f64,
+    },
+
+    /// `field`, skipped entirely (as exactly 0) outside `support`. The caller guarantees the field
+    /// is negligible there.
+    Bounded {
+        support: Aabb,
+        field: Box<Field>,
     },
 
     /// `field` multiplied by `window`, and skipped entirely outside `support`, where the product
@@ -176,6 +199,38 @@ impl Field {
         }
     }
 
+    /// A [`Field::Range`] along the segment from `a` to `b`.
+    pub fn range(a: Point2<f64>, b: Point2<f64>, width: f64, height: f64) -> Self {
+        let along = b - a;
+        Self::Range {
+            center: nalgebra::center(&a, &b),
+            direction: along.normalize(),
+            half_length: along.norm() / 2.,
+            width,
+            height,
+        }
+    }
+
+    /// The region outside which a [`Field::Range`] from `a` to `b` is below [`WINDOW_TOLERANCE`]:
+    /// the segment's bounding box grown by enough widths for both the Gaussian flanks and the
+    /// tanh tapers at the ends to decay.
+    pub fn range_support(a: Point2<f64>, b: Point2<f64>, width: f64, height: f64) -> Aabb {
+        let decay = (height.abs() / WINDOW_TOLERANCE).ln().max(0.);
+        let widths = (2. * decay).sqrt().max(decay / 2.);
+        Aabb::new(
+            Point2::new(a.x.min(b.x), a.y.min(b.y)),
+            Point2::new(a.x.max(b.x), a.y.max(b.y)),
+        )
+        .grow(widths * width)
+    }
+
+    pub fn bounded(self, support: Aabb) -> Self {
+        Self::Bounded {
+            support,
+            field: Box::new(self),
+        }
+    }
+
     pub fn masked(self, window: Window) -> Self {
         Self::Masked {
             window,
@@ -190,10 +245,14 @@ impl Field {
             Self::Constant(c) => c.abs(),
             Self::Plane { slope, .. } if *slope == Vector2::zeros() => 0.,
             Self::Plane { .. } => f64::INFINITY,
-            Self::Bump { height, .. } | Self::Ridge { height, .. } => height.abs(),
+            Self::Bump { height, .. } | Self::Ridge { height, .. } | Self::Range { height, .. } => {
+                height.abs()
+            }
             Self::Wave { amplitude, .. } => amplitude.abs(),
             Self::Scarp { height, .. } => height.abs() / 2.,
-            Self::Masked { field, .. } | Self::Warped { field, .. } => field.bound(),
+            Self::Masked { field, .. }
+            | Self::Warped { field, .. }
+            | Self::Bounded { field, .. } => field.bound(),
             Self::Scaled { factor, .. } if *factor == 0. => 0.,
             Self::Scaled { factor, field } => factor.abs() * field.bound(),
             Self::Sum(fields) => fields.iter().map(Self::bound).sum(),
@@ -270,7 +329,31 @@ impl Field {
                 height,
             } => {
                 let d = x.offset(-origin.x).scale(normal.x) + y.offset(-origin.y).scale(normal.y);
-                d.scale(1. / width).tanh().scale(height / 2.)
+                let reach = SCARP_REACH * width;
+                let fade = (d * d).scale(-0.5 / (reach * reach)).exp();
+                d.scale(1. / width).tanh() * fade.scale(height / 2.)
+            }
+            Self::Range {
+                center,
+                direction,
+                half_length,
+                width,
+                height,
+            } => {
+                let (rx, ry) = (x.offset(-center.x), y.offset(-center.y));
+                let along = rx.scale(direction.x) + ry.scale(direction.y);
+                let across = rx.scale(-direction.y) + ry.scale(direction.x);
+                let k = 1. / width;
+                let taper = (along.offset(*half_length).scale(k).tanh()
+                    - along.offset(-half_length).scale(k).tanh())
+                .scale(0.5);
+                (across * across).scale(-0.5 * k * k).exp() * taper.scale(*height)
+            }
+            Self::Bounded { support, field } => {
+                if !support.contains(Point2::new(x.value(), y.value())) {
+                    return S::constant(0.);
+                }
+                field.eval(x, y)
             }
             Self::Masked {
                 window,
@@ -370,6 +453,8 @@ mod test {
             * Field::wave(Vector2::new(-1., 1.), 400., 1.1, 1.)
             + Field::plane(Point2::origin(), Vector2::new(0.02, -0.01)).masked(w) * 3.
             + Field::scarp(Point2::new(-20., 40.), Vector2::new(-2., 1.), 12., 9.)
+            + Field::range(Point2::new(-150., -60.), Point2::new(120., 90.), 35., 14.)
+                .bounded(Aabb::centered(Point2::origin(), 1000.))
             + Field::bump(Point2::new(-30., 10.), 50., 8.).warped(
                 Field::wave(Vector2::new(1., 2.), 120., 0.3, 15.),
                 Field::wave(Vector2::new(-2., 1.), 150., 1.9, 15.),
@@ -433,6 +518,28 @@ mod test {
             );
             assert_eq!(f.height(edge + Vector2::new(1e-6, 0.)), 0.);
         }
+    }
+
+    #[test]
+    fn ranges_are_bounded_by_their_support() {
+        let (a, b) = (Point2::new(-300., 100.), Point2::new(400., -200.));
+        let range = Field::range(a, b, 50., 250.);
+        let support = Field::range_support(a, b, 50., 250.);
+        // Full height in the middle of the segment, negligible just outside the support.
+        assert_relative_eq!(range.height(nalgebra::center(&a, &b)), 250., epsilon = 1e-3);
+        for p in [
+            Point2::new(support.min.x, support.min.y),
+            Point2::new(support.max.x, (support.min.y + support.max.y) / 2.),
+            Point2::new((support.min.x + support.max.x) / 2., support.max.y),
+        ] {
+            assert!(
+                range.height(p).abs() < WINDOW_TOLERANCE,
+                "{p}: {}",
+                range.height(p)
+            );
+        }
+        let bounded = range.bounded(support);
+        assert_eq!(bounded.height(support.max + Vector2::new(1., 1.)), 0.);
     }
 
     #[test]

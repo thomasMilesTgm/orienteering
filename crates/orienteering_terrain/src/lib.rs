@@ -1,7 +1,9 @@
 //! Procedural generation of the world's height field.
 //!
-//! Terrain is generated coarse to fine, in two sizes of square cell:
+//! Terrain is generated coarse to fine:
 //!
+//! - **Plates** (about 48 km) drift and collide, pushing up mountain ranges along their
+//!   boundaries and raising the ruggedness around them; see [`tectonics`].
 //! - **Provinces** (8 km by default) set the broad shape of the land: wide basins, uplands and
 //!   ranges, and a smooth *ruggedness* field ρ ∈ [0, 1] saying how mountainous the ground is.
 //!   Rugged ground is uplifted, and smooth ground sinks into basins.
@@ -33,8 +35,13 @@ use orienteering_math::{
     rng::{self, Rng64},
 };
 use rayon::prelude::*;
+use std::borrow::Cow;
 use std::collections::HashMap;
+
+pub mod tectonics;
+
 use std::f64::consts::TAU;
+pub use tectonics::{Boundary, BoundaryKind, PLATE_REACH, Plate, TectonicParams};
 
 /// Tunable parameters for terrain generation.
 #[derive(Debug, Clone, PartialEq)]
@@ -50,7 +57,8 @@ pub struct TerrainParams {
     /// `1 / WINDOW_CUTOFF` so a cell only influences its immediate neighbors.
     pub blend_ratio: f64,
 
-    /// Average elevation of the world, meters.
+    /// Average elevation of the world, meters: a baseline under all the generated relief, present
+    /// from the coarsest level on.
     pub mean_elevation: f64,
 
     /// Relief of province-scale basins, uplands and ranges, meters.
@@ -76,6 +84,8 @@ pub struct TerrainParams {
 
     /// Strength of deposition on flat, smooth ground, in [0, 1]; 0 disables it.
     pub deposition: f64,
+
+    pub tectonics: TectonicParams,
 }
 
 impl Default for TerrainParams {
@@ -93,6 +103,7 @@ impl Default for TerrainParams {
             features_per_node: [1, 3],
             erosion: 1.,
             deposition: 0.8,
+            tectonics: TectonicParams::default(),
         }
     }
 }
@@ -173,7 +184,7 @@ const RUGGEDNESS_SIGMA: f64 = 0.45;
 /// Rings of provinces around a point that can influence it. The Gaussians' tails reach further
 /// than the windows: two rings out they are below 1e-6 of their peak, which is negligible even
 /// scaled by uplift (one ring would leave steps of ~0.4% where the neighborhood changes).
-const PROVINCE_REACH: i64 = 2;
+pub const PROVINCE_REACH: i64 = 2;
 
 /// A generated chunk of terrain. Its field extends a little beyond its bounds, blending into its
 /// neighbors.
@@ -244,9 +255,7 @@ impl World {
 
         // Broad basins, uplands and ranges, plus uplift of the rugged ground.
         let relief = p.province_relief;
-        let mut shape = vec![Field::Constant(
-            p.mean_elevation + relief * rng.range(-0.5, 0.5),
-        )];
+        let mut shape = vec![Field::Constant(relief * rng.range(-0.5, 0.5))];
         for _ in 0..rng.int(2, 4) {
             let at = bounds.lerp(rng.unit(), rng.unit());
             let angle = rng.range(0., TAU);
@@ -283,8 +292,10 @@ impl World {
 
     /// Ruggedness ρ ∈ [0, 1] at `p`.
     pub fn ruggedness_at(&self, p: Point2<f64>) -> f64 {
-        let provinces = self.provinces(Aabb::new(p, p));
-        ruggedness(provinces.iter().map(|v| v.ruggedness.height(p)).sum())
+        let at = Aabb::new(p, p);
+        let provinces = self.provinces(at).into_iter().map(|v| v.ruggedness);
+        let plates = self.plates(at).into_iter().map(|v| v.ruggedness);
+        ruggedness(provinces.chain(plates).map(|f| f.height(p)).sum())
     }
 
     pub fn chunk(&self, index: CellIndex) -> Chunk {
@@ -292,14 +303,47 @@ impl World {
     }
 
     /// Generates a chunk and keeps the record of how each of its nodes was generated.
-    #[tracing::instrument(level = "debug", skip(self), fields(ruggedness, nodes, depth))]
     pub fn chunk_traced(&self, index: CellIndex) -> TracedChunk {
+        self.chunk_traced_in(index, &HashMap::new(), &HashMap::new())
+    }
+
+    /// Like [`World::chunk_traced`], taking provinces and plates from caches where they're
+    /// present (and generating the rest), so neighboring chunks needn't regenerate them. The
+    /// result is the same either way.
+    #[tracing::instrument(level = "debug", skip_all, fields(?index, ruggedness, nodes, depth))]
+    pub fn chunk_traced_in(
+        &self,
+        index: CellIndex,
+        provinces: &HashMap<CellIndex, Province>,
+        plates: &HashMap<CellIndex, Plate>,
+    ) -> TracedChunk {
         let p = &self.params;
         let bounds = index.bounds(p.chunk_size);
-        let provinces = self.provinces(bounds.grow(p.chunk_size));
+        let area = bounds.grow(p.chunk_size);
+        let provinces: Vec<Cow<Province>> =
+            CellIndex::covering(area, p.province_size, PROVINCE_REACH)
+                .map(|i| {
+                    provinces
+                        .get(&i)
+                        .map_or_else(|| Cow::Owned(self.province(i)), Cow::Borrowed)
+                })
+                .collect();
+        let plates: Vec<Cow<Plate>> =
+            CellIndex::covering(area, p.tectonics.plate_size, PLATE_REACH)
+                .map(|i| {
+                    plates
+                        .get(&i)
+                        .map_or_else(|| Cow::Owned(self.plate(i)), Cow::Borrowed)
+                })
+                .collect();
 
-        // Everything coarser than this chunk's own detail: provinces and neighboring landforms.
-        let mut ctx = Context::new(&provinces);
+        // Everything coarser than this chunk's own detail: plates, provinces and neighboring
+        // landforms.
+        let mut ctx = Context::new(
+            p.mean_elevation,
+            provinces.iter().map(|v| v.as_ref()),
+            plates.iter().map(|v| v.as_ref()),
+        );
         let landforms: Vec<Field> = index
             .neighborhood()
             .filter(|&n| n != index)
@@ -369,7 +413,7 @@ impl World {
         }
     }
 
-    /// The coarsest level of a chunk, which depends only on the provinces.
+    /// The coarsest level of a chunk, which depends only on the plates and provinces.
     fn landform(&self, index: CellIndex, provinces: &Context) -> NodeTrace {
         let p = &self.params;
         let bounds = index.bounds(p.chunk_size);
@@ -388,28 +432,52 @@ impl World {
         }
     }
 
-    /// Generates every province and chunk needed to evaluate the terrain anywhere within `area`.
-    #[tracing::instrument(level = "info", skip(self), fields(provinces, chunks))]
+    /// Generates every plate, province and chunk needed to evaluate the terrain anywhere within
+    /// `area`.
+    #[tracing::instrument(level = "info", skip(self), fields(plates, provinces, chunks))]
     pub fn region(&self, area: Aabb) -> Region {
         let p = &self.params;
-        let provinces: HashMap<_, _> = CellIndex::covering(area, p.province_size, PROVINCE_REACH)
-            .map(|i| (i, self.province(i)))
-            .collect();
+        // Covering the chunks' own contexts too, so they find everything here.
+        let mut region = self.broad_region(area.grow(2. * p.chunk_size));
         let indices: Vec<_> = CellIndex::covering(area, p.chunk_size, 1).collect();
-        let chunks: HashMap<_, _> = indices
+        region.chunks = indices
             .into_par_iter()
-            .map(|i| (i, self.chunk(i)))
+            .map(|i| {
+                (
+                    i,
+                    self.chunk_traced_in(i, &region.provinces, &region.plates)
+                        .chunk,
+                )
+            })
             .collect();
+        region.area = area;
         tracing::Span::current()
-            .record("provinces", provinces.len())
-            .record("chunks", chunks.len());
+            .record("plates", region.plates.len())
+            .record("provinces", region.provinces.len())
+            .record("chunks", region.chunks.len());
+        region
+    }
 
+    /// The plates and provinces covering `area`, without chunks: the broad shape of the land,
+    /// cheap enough for views of a whole mountain range.
+    pub fn broad_region(&self, area: Aabb) -> Region {
+        let p = &self.params;
+        let plates: Vec<_> =
+            CellIndex::covering(area, p.tectonics.plate_size, PLATE_REACH).collect();
+        let provinces: Vec<_> =
+            CellIndex::covering(area, p.province_size, PROVINCE_REACH).collect();
         Region {
             area,
+            baseline: p.mean_elevation,
             chunk_size: p.chunk_size,
             province_size: p.province_size,
-            provinces,
-            chunks,
+            plate_size: p.tectonics.plate_size,
+            plates: plates.into_par_iter().map(|i| (i, self.plate(i))).collect(),
+            provinces: provinces
+                .into_par_iter()
+                .map(|i| (i, self.province(i)))
+                .collect(),
+            chunks: HashMap::new(),
         }
     }
 }
@@ -439,10 +507,24 @@ pub struct Site {
 }
 
 impl Context {
-    fn new(provinces: &[Province]) -> Self {
+    fn new<'a>(
+        baseline: f64,
+        provinces: impl Iterator<Item = &'a Province> + Clone,
+        plates: impl Iterator<Item = &'a Plate> + Clone,
+    ) -> Self {
+        let rugged = provinces.clone().map(|v| v.ruggedness.clone());
+        let elevation = provinces.map(|v| v.elevation.clone());
         Self {
-            ruggedness: Field::Sum(provinces.iter().map(|v| v.ruggedness.clone()).collect()),
-            base: provinces.iter().map(|v| v.elevation.clone()).collect(),
+            ruggedness: Field::Sum(
+                rugged
+                    .chain(plates.clone().map(|v| v.ruggedness.clone()))
+                    .collect(),
+            ),
+            base: [Field::Constant(baseline)]
+                .into_iter()
+                .chain(elevation)
+                .chain(plates.map(|v| v.elevation.clone()))
+                .collect(),
             own: Field::Constant(0.),
         }
     }
@@ -732,50 +814,64 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
 }
 
-/// The provinces and chunks covering an area, valid for evaluating the terrain within `area`.
+/// The plates, provinces and chunks covering an area, valid for evaluating the terrain within
+/// `area`.
 #[derive(Debug, Clone)]
 pub struct Region {
     pub area: Aabb,
+    /// The world's mean elevation, under everything else.
+    pub baseline: f64,
     pub chunk_size: f64,
     pub province_size: f64,
+    pub plate_size: f64,
+    pub plates: HashMap<CellIndex, Plate>,
     pub provinces: HashMap<CellIndex, Province>,
     pub chunks: HashMap<CellIndex, Chunk>,
 }
 
 impl Region {
-    fn fields(&self, p: Point2<f64>) -> impl Iterator<Item = &Field> {
-        let provinces = CellIndex::containing(p, self.province_size)
+    fn nearby_plates(&self, p: Point2<f64>) -> impl Iterator<Item = &Plate> {
+        CellIndex::containing(p, self.plate_size)
+            .within(PLATE_REACH)
+            .filter_map(|i| self.plates.get(&i))
+    }
+
+    fn nearby_provinces(&self, p: Point2<f64>) -> impl Iterator<Item = &Province> {
+        CellIndex::containing(p, self.province_size)
             .within(PROVINCE_REACH)
             .filter_map(|i| self.provinces.get(&i))
-            .map(|v| &v.elevation);
+    }
+
+    fn fields(&self, p: Point2<f64>) -> impl Iterator<Item = &Field> {
         let chunks = CellIndex::containing(p, self.chunk_size)
             .neighborhood()
             .filter_map(|i| self.chunks.get(&i))
             .map(|c| &c.field);
-        provinces.chain(chunks)
+        self.nearby_plates(p)
+            .map(|v| &v.elevation)
+            .chain(self.nearby_provinces(p).map(|v| &v.elevation))
+            .chain(chunks)
     }
 
     /// Ruggedness ρ ∈ [0, 1] at `p`.
     pub fn ruggedness(&self, p: Point2<f64>) -> f64 {
-        ruggedness(
-            CellIndex::containing(p, self.province_size)
-                .within(PROVINCE_REACH)
-                .filter_map(|i| self.provinces.get(&i))
-                .map(|v| v.ruggedness.height(p))
-                .sum(),
-        )
+        let plates = self.nearby_plates(p).map(|v| &v.ruggedness);
+        let provinces = self.nearby_provinces(p).map(|v| &v.ruggedness);
+        ruggedness(provinces.chain(plates).map(|f| f.height(p)).sum())
     }
 }
 
 impl Surface for Region {
     fn height(&self, p: Point2<f64>) -> f64 {
-        self.fields(p).map(|f| f.height(p)).sum()
+        self.baseline + self.fields(p).map(|f| f.height(p)).sum::<f64>()
     }
 
     fn height_and_gradient(&self, p: Point2<f64>) -> (f64, Vector2<f64>) {
         self.fields(p)
             .map(|f| f.height_and_gradient(p))
-            .fold((0., Vector2::zeros()), |(h, g), (fh, fg)| (h + fh, g + fg))
+            .fold((self.baseline, Vector2::zeros()), |(h, g), (fh, fg)| {
+                (h + fh, g + fg)
+            })
     }
 }
 
@@ -828,6 +924,15 @@ mod test {
         let id = traced.node_at(p, u32::MAX).unwrap();
         assert!(traced.nodes[id].bounds.contains(p) && traced.nodes[id].children.is_empty());
         assert_eq!(traced.node_at(p, 0), Some(0));
+    }
+
+    #[test]
+    fn regions_generate_the_same_chunks() {
+        let w = world();
+        let region = w.region(Aabb::centered(Point2::new(300., -200.), 1200.));
+        for (index, chunk) in &region.chunks {
+            assert_eq!(chunk, &w.chunk(*index), "chunk {index:?}");
+        }
     }
 
     #[test]
