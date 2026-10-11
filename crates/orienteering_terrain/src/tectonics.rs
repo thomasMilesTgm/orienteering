@@ -45,11 +45,11 @@ pub struct TectonicParams {
 impl Default for TectonicParams {
     fn default() -> Self {
         Self {
-            plate_size: 48_000.,
-            uplift: 220.,
-            rift: 50.,
-            range_width: 4_000.,
-            ruggedness: 1.2,
+            plate_size: 98_000.,
+            uplift: 1800.,
+            rift: 500.,
+            range_width: 9_000.,
+            ruggedness: 4.2,
             piece_length: 12_000.,
         }
     }
